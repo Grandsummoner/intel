@@ -410,9 +410,51 @@ struct StellarButton : ParamWidget {
 	}
 };
 
-struct StellarKnob : Knob {
+struct StellarKnob : ParamWidget {
 	StellarKnob() {
 		box.size = mm2px(Vec(5.6, 5.6));
+	}
+	void onButton(const ButtonEvent& e) override {
+		ParamWidget::onButton(e);
+		if (e.action == GLFW_PRESS && e.button == GLFW_MOUSE_BUTTON_LEFT) {
+			e.consume(this);
+		}
+	}
+	void onDragMove(const DragMoveEvent& e) override {
+		ParamQuantity* pq = getParamQuantity();
+		if (!pq) return;
+		float range = pq->getMaxValue() - pq->getMinValue();
+		if (!std::isfinite(range) || range <= 0.f) range = 1.f;
+		float delta = -e.mouseDelta.y * range / 200.f;
+		pq->setValue(clamp(pq->getValue() + delta, pq->getMinValue(), pq->getMaxValue()));
+	}
+	void onDoubleClick(const DoubleClickEvent& e) override {
+		ParamQuantity* pq = getParamQuantity();
+		if (pq) pq->reset();
+	}
+	void draw(const DrawArgs& args) override {
+		float cx = box.size.x / 2.f, cy = box.size.y / 2.f;
+		float r = box.size.x / 2.f;
+		nvgBeginPath(args.vg);
+		nvgCircle(args.vg, cx, cy, r);
+		NVGpaint grad = nvgLinearGradient(args.vg, cx, cy - r, cx, cy + r,
+			nvgRGB(0x26, 0x26, 0x28), nvgRGB(0x1A, 0x1A, 0x1C));
+		nvgFillPaint(args.vg, grad);
+		nvgFill(args.vg);
+		nvgStrokeColor(args.vg, nvgRGB(0x0A, 0x0A, 0x0A));
+		nvgStrokeWidth(args.vg, 0.6f);
+		nvgStroke(args.vg);
+
+		float value = 0.f;
+		ParamQuantity* pq = getParamQuantity();
+		if (pq) value = pq->getScaledValue();
+		float angle = rescale(value, 0.f, 1.f, -0.8f * (float)M_PI, 0.8f * (float)M_PI) - (float)M_PI / 2.f;
+		nvgBeginPath(args.vg);
+		nvgMoveTo(args.vg, cx, cy);
+		nvgLineTo(args.vg, cx + std::cos(angle) * r * 0.8f, cy + std::sin(angle) * r * 0.8f);
+		nvgStrokeColor(args.vg, nvgRGB(0xE8, 0xE0, 0xD0));
+		nvgStrokeWidth(args.vg, 0.9f);
+		nvgStroke(args.vg);
 	}
 };
 
