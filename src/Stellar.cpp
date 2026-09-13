@@ -318,7 +318,7 @@ struct Stellar : Module {
 		// expander message today, so this is intentionally just a
 		// presence light.
 		auto isSpacesCommand = [](Module* m) {
-			return m && m->model && m->model->plugin && m->model->plugin->slug == "Spaces" && m->model->slug == "SpacesCommand";
+			return m && m->model && m->model->plugin && m->model->plugin->slug == "SpacesCommand" && m->model->slug == "SpacesCommand";
 		};
 		bool linkedLeft = isSpacesCommand(leftExpander.module);
 		bool linkedRight = isSpacesCommand(rightExpander.module);
@@ -370,10 +370,10 @@ struct Stellar : Module {
 };
 
 // ---------------------------------------------------------------------
-// Widgets -- reuses the same visual language as SpacesCommand (empty-
+// Widgets -- reuses the same visual language as Spaces Command (empty-
 // until-lit SquareButton, same palette) for family consistency, per
 // the earlier design decision that shared design language (not a
-// repeated "Spaces" prefix) is what signals the modules are linked.
+// repeated name prefix) is what signals the modules are linked.
 // ---------------------------------------------------------------------
 
 struct StellarButton : ParamWidget {
