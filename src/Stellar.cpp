@@ -421,6 +421,7 @@ struct StellarKnob : ParamWidget {
 		}
 	}
 	void onDragMove(const DragMoveEvent& e) override {
+		ParamWidget::onDragMove(e);
 		ParamQuantity* pq = getParamQuantity();
 		if (!pq) return;
 		float range = pq->getMaxValue() - pq->getMinValue();
@@ -461,7 +462,16 @@ struct StellarKnob : ParamWidget {
 struct StellarWidget : ModuleWidget {
 	StellarWidget(Stellar* module) {
 		setModule(module);
-		box.size = mm2px(Vec(71.12, 128.5));
+		// box.size deliberately NOT set manually here -- setPanel() below
+		// auto-sizes the widget from the panel SVG's own real dimensions.
+		// A hand-computed mm2px(Vec(w, 128.5)) was the actual root cause
+		// of the "picking it crashes" bug: mm2px(128.5) = 379.43px, but
+		// Rack's RackWidget::addModule requires box.size.y to be EXACTLY
+		// equal to its fixed RACK_GRID_HEIGHT constant (380px, bit-for-
+		// bit) or it throws -- 128.5mm is the commonly-cited *approximate*
+		// physical 3U dimension, never meant to be fed through mm2px and
+		// compared exactly. Command (proven working) never sets box.size
+		// manually for this exact reason -- confirmed by direct comparison.
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/Stellar.svg")));
 
 		auto in = [&](float x, float y, int id) { addInput(createInputCentered<PJ301MPort>(mm2px(Vec(x, y)), module, id)); };
