@@ -190,7 +190,15 @@ struct Stellar : Module {
 					sawPhases[i] += sawPhaseInc[i];
 					if (sawPhases[i] >= 1.f) sawPhases[i] -= 1.f;
 				}
-				total += sum * 0.35f; activeCount++;
+				// Was a flat *0.35 on the raw 7-way sum, which peaks near
+				// +-2.45 on its own (worse than any other single waveform
+				// here) before the activeCount normalization below even
+				// applies -- the real source of "one voice way louder than
+				// the others" complaints. Dividing by the stack size instead
+				// brings SS to the same ~unity peak as AN/FM/PL so all four
+				// contribute comparably regardless of which combination is
+				// active.
+				total += sum / 7.f; activeCount++;
 			}
 			if (pl) {
 				// Fixed 50% duty -- PWM sweep was tied to the old
@@ -218,6 +226,15 @@ struct Stellar : Module {
 
 	VoiceEngine v1, v2;
 	uint32_t noiseState = 0x2f6e2b1;
+
+	// Gentle safety ceiling -- transparent well under it, rounds off the
+	// top rather than hard-cutting once a patch (multiple oscillators
+	// stacked, high cutoff/bass-compensation pushing hard) would otherwise
+	// spike past sane modular voltage. A single default voice sits well
+	// inside this untouched; it only engages on genuinely hot combinations.
+	static float softClip(float x, float ceiling) {
+		return ceiling * std::tanh(x / ceiling);
+	}
 
 	float noiseSample() {
 		// Simple xorshift -- fast, deterministic-per-seed, no external deps.
@@ -336,7 +353,7 @@ struct Stellar : Module {
 		                 params[SUSTAIN1_PARAM].getValue(), params[RELEASE1_PARAM].getValue());
 		float v1osc = v1.processOscMix(an1On, fm1On, ss1On, pl1On, params[CUTOFF1_PARAM].getValue(), sr);
 		float mod1 = inputs[MOD1_INPUT].isConnected() ? clamp(inputs[MOD1_INPUT].getVoltage() / 10.f, 0.f, 1.f) : 1.f;
-		float voice1Out = v1osc * mod1 * 5.f;
+		float voice1Out = softClip(v1osc * mod1 * 5.f, 8.f);
 
 		float sub1Freq = 261.6256f * std::pow(2.f, inputs[VOCT1_INPUT].getVoltage()) * 0.5f;  // -1 octave
 		float sub1 = v1.processSub(sub1Freq, sr, g1) * 5.f;
@@ -351,7 +368,7 @@ struct Stellar : Module {
 		                 params[SUSTAIN2_PARAM].getValue(), params[RELEASE2_PARAM].getValue());
 		float v2osc = v2.processOscMix(an2On, fm2On, ss2On, pl2On, params[CUTOFF2_PARAM].getValue(), sr);
 		float mod2 = inputs[MOD2_INPUT].isConnected() ? clamp(inputs[MOD2_INPUT].getVoltage() / 10.f, 0.f, 1.f) : 1.f;
-		float voice2Out = v2osc * mod2 * 5.f;
+		float voice2Out = softClip(v2osc * mod2 * 5.f, 8.f);
 
 		float sub2Freq = 261.6256f * std::pow(2.f, inputs[VOCT2_INPUT].getVoltage()) * 0.25f;  // -2 octaves
 		float sub2 = v2.processSub(sub2Freq, sr, g2) * 5.f;
@@ -361,9 +378,12 @@ struct Stellar : Module {
 		outputs[NOISE_OUTPUT].setVoltage(noiseSample() * 5.f);
 
 		// --- Master mix: both voices + EXT-IN (mono normals to both channels) ---
+		// Second, wider ceiling here on top of each voice's own -- two hot
+		// voices plus an external signal can still stack past sane levels
+		// even with each one individually tamed above.
 		float extIn = inputs[EXTIN_INPUT].getVoltage();
-		float masterL = voice1Out + voice2Out + extIn;
-		float masterR = voice1Out + voice2Out + extIn;
+		float masterL = softClip(voice1Out + voice2Out + extIn, 10.f);
+		float masterR = masterL;
 		outputs[MASTER_L_OUTPUT].setVoltage(masterL);
 		outputs[MASTER_R_OUTPUT].setVoltage(masterR);
 	}
@@ -478,31 +498,31 @@ struct StellarWidget : ModuleWidget {
 		auto out = [&](float x, float y, int id) { addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(x, y)), module, id)); };
 
 		// I/O 1
-		in(15.4, 18.7, Stellar::VOCT1_INPUT);
-		in(30.51, 18.7, Stellar::GATE1_INPUT);
-		in(45.61, 18.7, Stellar::MOD1_INPUT);
-		out(60.72, 18.7, Stellar::SUB1_OUTPUT);
+		in(15.4, 18.3, Stellar::VOCT1_INPUT);
+		in(30.51, 18.3, Stellar::GATE1_INPUT);
+		in(45.61, 18.3, Stellar::MOD1_INPUT);
+		out(60.72, 18.3, Stellar::SUB1_OUTPUT);
 
 		// I/O 2
-		in(15.4, 37.91, Stellar::VOCT2_INPUT);
-		in(30.51, 37.91, Stellar::GATE2_INPUT);
-		in(45.61, 37.91, Stellar::MOD2_INPUT);
-		out(60.72, 37.91, Stellar::SUB2_OUTPUT);
+		in(15.4, 37.51, Stellar::VOCT2_INPUT);
+		in(30.51, 37.51, Stellar::GATE2_INPUT);
+		in(45.61, 37.51, Stellar::MOD2_INPUT);
+		out(60.72, 37.51, Stellar::SUB2_OUTPUT);
 
 		// AUX
-		in(15.4, 57.11, Stellar::EXTIN_INPUT);
-		out(30.51, 57.11, Stellar::NOISE_OUTPUT);
-		out(45.61, 57.11, Stellar::MASTER_L_OUTPUT);
-		out(60.72, 57.11, Stellar::MASTER_R_OUTPUT);
+		in(15.4, 56.71, Stellar::EXTIN_INPUT);
+		out(30.51, 56.71, Stellar::NOISE_OUTPUT);
+		out(45.61, 56.71, Stellar::MASTER_L_OUTPUT);
+		out(60.72, 56.71, Stellar::MASTER_R_OUTPUT);
 
 		// VOICE 1
 		{
 			struct BtnSpec { float x, y; int param, light; };
 			BtnSpec btns[4] = {
-				{13.5, 74.22, Stellar::AN1_PARAM, Stellar::AN1_LIGHT},
-				{29.87, 74.22, Stellar::FM1_PARAM, Stellar::FM1_LIGHT},
-				{46.25, 74.22, Stellar::SS1_PARAM, Stellar::SS1_LIGHT},
-				{62.62, 74.22, Stellar::PL1_PARAM, Stellar::PL1_LIGHT},
+				{13.5, 73.82, Stellar::AN1_PARAM, Stellar::AN1_LIGHT},
+				{29.87, 73.82, Stellar::FM1_PARAM, Stellar::FM1_LIGHT},
+				{46.25, 73.82, Stellar::SS1_PARAM, Stellar::SS1_LIGHT},
+				{62.62, 73.82, Stellar::PL1_PARAM, Stellar::PL1_LIGHT},
 			};
 			for (auto& b : btns) {
 				auto* btn = createParamCentered<StellarButton>(mm2px(Vec(b.x, b.y)), module, b.param);
@@ -510,7 +530,7 @@ struct StellarWidget : ModuleWidget {
 				btn->litColor = nvgRGB(0x8A, 0x64, 0x23);  // brass -- Voice 1 accent
 				addParam(btn);
 			}
-			float knobY = 87.12;
+			float knobY = 86.72;
 			float knobX[5] = {13.5, 25.78, 38.06, 50.34, 62.62};
 			int knobParams[5] = {Stellar::ATTACK1_PARAM, Stellar::DECAY1_PARAM,
 			                     Stellar::SUSTAIN1_PARAM, Stellar::RELEASE1_PARAM, Stellar::CUTOFF1_PARAM};
@@ -522,10 +542,10 @@ struct StellarWidget : ModuleWidget {
 		{
 			struct BtnSpec { float x, y; int param, light; };
 			BtnSpec btns[4] = {
-				{13.5, 103.42, Stellar::AN2_PARAM, Stellar::AN2_LIGHT},
-				{29.87, 103.42, Stellar::FM2_PARAM, Stellar::FM2_LIGHT},
-				{46.25, 103.42, Stellar::SS2_PARAM, Stellar::SS2_LIGHT},
-				{62.62, 103.42, Stellar::PL2_PARAM, Stellar::PL2_LIGHT},
+				{13.5, 103.02, Stellar::AN2_PARAM, Stellar::AN2_LIGHT},
+				{29.87, 103.02, Stellar::FM2_PARAM, Stellar::FM2_LIGHT},
+				{46.25, 103.02, Stellar::SS2_PARAM, Stellar::SS2_LIGHT},
+				{62.62, 103.02, Stellar::PL2_PARAM, Stellar::PL2_LIGHT},
 			};
 			for (auto& b : btns) {
 				auto* btn = createParamCentered<StellarButton>(mm2px(Vec(b.x, b.y)), module, b.param);
@@ -533,7 +553,7 @@ struct StellarWidget : ModuleWidget {
 				btn->litColor = nvgRGB(0x8A, 0x2A, 0x2A);  // maroon -- Voice 2 accent
 				addParam(btn);
 			}
-			float knobY = 116.32;
+			float knobY = 115.92;
 			float knobX[5] = {13.5, 25.78, 38.06, 50.34, 62.62};
 			int knobParams[5] = {Stellar::ATTACK2_PARAM, Stellar::DECAY2_PARAM,
 			                     Stellar::SUSTAIN2_PARAM, Stellar::RELEASE2_PARAM, Stellar::CUTOFF2_PARAM};
