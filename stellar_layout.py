@@ -91,12 +91,12 @@ def txt(text, x, y, size, color, anchor="start", tracking=1.05):
 
 def add(s): svg.append(s)
 
-title_x = x0 + (R["light"]+0.6)*2 + 1.5   # cleared past the new left LINK light -- was colliding with the "S"
-p, _ = txt("STELLAR", title_x, OUTER_MARGIN + 3.2, 3.4, TEXT_BRIGHT)
+title_x = x0 + (R["light"]+0.6)*2 + 1.5   # cleared past the left LINK light
+p, _ = txt("STELLAR", title_x, 7.2, 4.4, TEXT_BRIGHT)
 add(p)
-p, _ = txt("dual-voice companion", title_x, OUTER_MARGIN + 5.9, 1.5, TEXT_DIM)
+p, _ = txt("dual-voice companion", title_x, 10.4, 1.9, TEXT_DIM)
 add(p)
-TITLE_H = OUTER_MARGIN + 8.4
+TITLE_H = 12.5
 
 link_r_cx, link_r_cy = PANEL_W - OUTER_MARGIN - R["light"], OUTER_MARGIN + R["light"]
 add(f'<circle cx="{link_r_cx}" cy="{link_r_cy}" r="{R["light"]}" fill="{NAVY}" opacity="0.85"/>')
