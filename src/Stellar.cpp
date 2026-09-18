@@ -82,19 +82,24 @@ struct Stellar : Module {
 		// Raw on/off sub-oscillator, independent of the ADSR above
 		float subPhase = 0.f;
 
-		void triggerNote(float freqHz, float sampleRate) {
+		void triggerNote(float freqHz, float sampleRate, bool forceRetrigger = false) {
 			phaseInc = freqHz / sampleRate;
 			static const float detunes[7] = {-0.06f,-0.04f,-0.015f,0.f,0.015f,0.04f,0.06f};
 			for (int i = 0; i < 7; i++) {
 				float df = freqHz * std::pow(2.f, detunes[i] / 12.f);
 				sawPhaseInc[i] = df / sampleRate;
 			}
-			if (activeNoteCount == 0) {
+			// forceRetrigger (fast/legato pitch-change re-attack) resets the
+			// envelope without touching activeNoteCount -- the gate never
+			// dropped, so the note is already correctly counted as held;
+			// this just re-snaps its envelope. A real gate-edge call always
+			// goes through the normal counted path below.
+			if (activeNoteCount == 0 || forceRetrigger) {
 				envState = Env::Attack;
 				stateTime = 0.0;
 				envVal = 0.f;
 			}
-			activeNoteCount++;
+			if (!forceRetrigger) activeNoteCount++;
 		}
 
 		void releaseNote() {
@@ -286,6 +291,9 @@ struct Stellar : Module {
 	bool an2On = false, fm2On = false, ss2On = false, pl2On = false;
 	dsp::SchmittTrigger gate1Trig, gate2Trig;
 	bool gate1High = false, gate2High = false;
+	// Sentinel far outside any real V/OCT range so the very first note-on
+	// (handled by the gate-edge check below) never double-fires here.
+	float lastVoct1 = -1000.f, lastVoct2 = -1000.f;
 
 	json_t* dataToJson() override {
 		json_t* rootJ = json_object();
@@ -346,7 +354,17 @@ struct Stellar : Module {
 
 		// --- Voice 1 ---
 		bool g1 = inputs[GATE1_INPUT].getVoltage() >= 1.f;
-		if (gate1Trig.process(g1 ? 10.f : 0.f)) v1.triggerNote(261.6256f * std::pow(2.f, inputs[VOCT1_INPUT].getVoltage()), sr);
+		float voct1 = inputs[VOCT1_INPUT].getVoltage();
+		// Fast/legato-safe retrigger: some MIDI-CV interfaces hold GATE
+		// continuously high across overlapping notes and only move V/OCT,
+		// so a gate-edge-only check misses every note after the first.
+		// Any real pitch change while gate is already (and was already)
+		// high counts as a new note too -- 1mV is well below a semitone
+		// (~83mV) so this won't false-trigger on CV noise/jitter.
+		bool pitchChanged1 = gate1High && g1 && std::fabs(voct1 - lastVoct1) > 0.001f;
+		if (gate1Trig.process(g1 ? 10.f : 0.f)) v1.triggerNote(261.6256f * std::pow(2.f, voct1), sr);
+		else if (pitchChanged1) v1.triggerNote(261.6256f * std::pow(2.f, voct1), sr, true);
+		lastVoct1 = voct1;
 		if (gate1High && !g1) v1.releaseNote();
 		gate1High = g1;
 		v1.stepEnvelope(sr, params[ATTACK1_PARAM].getValue(), params[DECAY1_PARAM].getValue(),
@@ -355,13 +373,17 @@ struct Stellar : Module {
 		float mod1 = inputs[MOD1_INPUT].isConnected() ? clamp(inputs[MOD1_INPUT].getVoltage() / 10.f, 0.f, 1.f) : 1.f;
 		float voice1Out = softClip(v1osc * mod1 * 5.f, 8.f);
 
-		float sub1Freq = 261.6256f * std::pow(2.f, inputs[VOCT1_INPUT].getVoltage()) * 0.5f;  // -1 octave
+		float sub1Freq = 261.6256f * std::pow(2.f, voct1) * 0.5f;  // -1 octave
 		float sub1 = v1.processSub(sub1Freq, sr, g1) * 5.f;
 		outputs[SUB1_OUTPUT].setVoltage(sub1);
 
 		// --- Voice 2 ---
 		bool g2 = inputs[GATE2_INPUT].getVoltage() >= 1.f;
-		if (gate2Trig.process(g2 ? 10.f : 0.f)) v2.triggerNote(261.6256f * std::pow(2.f, inputs[VOCT2_INPUT].getVoltage()), sr);
+		float voct2 = inputs[VOCT2_INPUT].getVoltage();
+		bool pitchChanged2 = gate2High && g2 && std::fabs(voct2 - lastVoct2) > 0.001f;
+		if (gate2Trig.process(g2 ? 10.f : 0.f)) v2.triggerNote(261.6256f * std::pow(2.f, voct2), sr);
+		else if (pitchChanged2) v2.triggerNote(261.6256f * std::pow(2.f, voct2), sr, true);
+		lastVoct2 = voct2;
 		if (gate2High && !g2) v2.releaseNote();
 		gate2High = g2;
 		v2.stepEnvelope(sr, params[ATTACK2_PARAM].getValue(), params[DECAY2_PARAM].getValue(),
@@ -370,7 +392,7 @@ struct Stellar : Module {
 		float mod2 = inputs[MOD2_INPUT].isConnected() ? clamp(inputs[MOD2_INPUT].getVoltage() / 10.f, 0.f, 1.f) : 1.f;
 		float voice2Out = softClip(v2osc * mod2 * 5.f, 8.f);
 
-		float sub2Freq = 261.6256f * std::pow(2.f, inputs[VOCT2_INPUT].getVoltage()) * 0.25f;  // -2 octaves
+		float sub2Freq = 261.6256f * std::pow(2.f, voct2) * 0.25f;  // -2 octaves
 		float sub2 = v2.processSub(sub2Freq, sr, g2) * 5.f;
 		outputs[SUB2_OUTPUT].setVoltage(sub2);
 
