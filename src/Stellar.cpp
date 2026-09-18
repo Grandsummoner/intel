@@ -221,11 +221,18 @@ struct Stellar : Module {
 			return filtered * envVal;
 		}
 
-		float processSub(float freqHz, float sampleRate, bool gateOn) {
+		float processSub(float freqHz, float sampleRate, bool anyOscOn) {
 			subPhase += freqHz / sampleRate;
 			if (subPhase >= 1.f) subPhase -= 1.f;
+			// Silent whenever no waveform is selected on this voice, and
+			// otherwise follows the same envVal as the main mix (including
+			// its release tail, not just a hard on/off at the gate) so it
+			// behaves like part of the voice instead of an independent
+			// oscillator. The extra *0.5 sits it under the shaped main
+			// output instead of matching its full raw square-wave level.
+			if (!anyOscOn) return 0.f;
 			float wave = (subPhase < 0.5f) ? 1.f : -1.f;
-			return gateOn ? wave : 0.f;
+			return wave * envVal * 0.5f;
 		}
 	};
 
@@ -278,8 +285,8 @@ struct Stellar : Module {
 		configInput(MOD2_INPUT, "Voice 2 MOD (VCA stage -- envelope x this CV; unpatched = fully open)");
 		configInput(EXTIN_INPUT, "External audio in (mono normals to both Master L and R)");
 
-		configOutput(SUB1_OUTPUT, "Voice 1 sub-oscillator (-1 octave, gated raw on/off by GATE 1)");
-		configOutput(SUB2_OUTPUT, "Voice 2 sub-oscillator (-2 octaves, gated raw on/off by GATE 2)");
+		configOutput(SUB1_OUTPUT, "Voice 1 sub-oscillator (-1 octave, follows Voice 1's envelope, silent if no waveform selected)");
+		configOutput(SUB2_OUTPUT, "Voice 2 sub-oscillator (-2 octaves, follows Voice 2's envelope, silent if no waveform selected)");
 		configOutput(NOISE_OUTPUT, "Noise (standalone, always-on, unshaped)");
 		configOutput(MASTER_L_OUTPUT, "Master L");
 		configOutput(MASTER_R_OUTPUT, "Master R");
@@ -374,7 +381,7 @@ struct Stellar : Module {
 		float voice1Out = softClip(v1osc * mod1 * 5.f, 8.f);
 
 		float sub1Freq = 261.6256f * std::pow(2.f, voct1) * 0.5f;  // -1 octave
-		float sub1 = v1.processSub(sub1Freq, sr, g1) * 5.f;
+		float sub1 = v1.processSub(sub1Freq, sr, an1On || fm1On || ss1On || pl1On) * 5.f;
 		outputs[SUB1_OUTPUT].setVoltage(sub1);
 
 		// --- Voice 2 ---
@@ -393,7 +400,7 @@ struct Stellar : Module {
 		float voice2Out = softClip(v2osc * mod2 * 5.f, 8.f);
 
 		float sub2Freq = 261.6256f * std::pow(2.f, voct2) * 0.25f;  // -2 octaves
-		float sub2 = v2.processSub(sub2Freq, sr, g2) * 5.f;
+		float sub2 = v2.processSub(sub2Freq, sr, an2On || fm2On || ss2On || pl2On) * 5.f;
 		outputs[SUB2_OUTPUT].setVoltage(sub2);
 
 		// --- Noise: standalone, always-on, own output only ---
