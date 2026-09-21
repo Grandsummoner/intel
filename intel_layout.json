@@ -1,0 +1,140 @@
+{
+  "link_left": {
+    "x": 5.5,
+    "y": 5.5,
+    "light": "LINK_LEFT_LIGHT"
+  },
+  "link_right": {
+    "x": 65.62,
+    "y": 5.5,
+    "light": "LINK_RIGHT_LIGHT"
+  },
+  "meter": {
+    "x": 9.5,
+    "y": 13.9,
+    "w": 54.32,
+    "h": 6.0,
+    "n_leds": 14
+  },
+  "io": [
+    {
+      "x": 15.4,
+      "y": 43.8,
+      "param": "EXT_L_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 30.51,
+      "y": 43.8,
+      "param": "EXT_R_INPUT",
+      "dir": "in"
+    },
+    {
+      "x": 45.61,
+      "y": 43.8,
+      "param": "MASTER_L_OUTPUT",
+      "dir": "out"
+    },
+    {
+      "x": 60.72,
+      "y": 43.8,
+      "param": "MASTER_R_OUTPUT",
+      "dir": "out"
+    }
+  ],
+  "trig": [
+    {
+      "x": 16.64,
+      "jack_y": 70.1,
+      "trig_out": "TRIG1_OUTPUT",
+      "ratediv_x": 12.94,
+      "depth_x": 20.34,
+      "button_y": 80.4,
+      "ratediv_param": "RATEDIV1_PARAM",
+      "depth_param": "DEPTH1_PARAM",
+      "cmd_link": "rate"
+    },
+    {
+      "x": 30.92,
+      "jack_y": 70.1,
+      "trig_out": "TRIG2_OUTPUT",
+      "ratediv_x": 27.22,
+      "depth_x": 34.62,
+      "button_y": 80.4,
+      "ratediv_param": "RATEDIV2_PARAM",
+      "depth_param": "DEPTH2_PARAM",
+      "cmd_link": "dens"
+    },
+    {
+      "x": 45.2,
+      "jack_y": 70.1,
+      "trig_out": "TRIG3_OUTPUT",
+      "ratediv_x": 41.5,
+      "depth_x": 48.9,
+      "button_y": 80.4,
+      "ratediv_param": "RATEDIV3_PARAM",
+      "depth_param": "DEPTH3_PARAM",
+      "cmd_link": "swing"
+    },
+    {
+      "x": 59.48,
+      "jack_y": 70.1,
+      "trig_out": "TRIG4_OUTPUT",
+      "ratediv_x": 55.78,
+      "depth_x": 63.18,
+      "button_y": 80.4,
+      "ratediv_param": "RATEDIV4_PARAM",
+      "depth_param": "DEPTH4_PARAM",
+      "cmd_link": "entropy"
+    }
+  ],
+  "fx_buttons": [
+    {
+      "x": 13.5,
+      "y": 103.9,
+      "param": "DELAY_PARAM"
+    },
+    {
+      "x": 29.87,
+      "y": 103.9,
+      "param": "REVERB_PARAM"
+    },
+    {
+      "x": 46.25,
+      "y": 103.9,
+      "param": "SHIMMER_PARAM"
+    },
+    {
+      "x": 62.62,
+      "y": 103.9,
+      "param": "SYNC_PARAM"
+    }
+  ],
+  "fx_knobs": [
+    {
+      "x": 13.5,
+      "y": 115.2,
+      "param": "MIX_PARAM"
+    },
+    {
+      "x": 25.78,
+      "y": 115.2,
+      "param": "TIME_PARAM"
+    },
+    {
+      "x": 38.06,
+      "y": 115.2,
+      "param": "REGEN_PARAM"
+    },
+    {
+      "x": 50.34,
+      "y": 115.2,
+      "param": "TONE_PARAM"
+    },
+    {
+      "x": 62.62,
+      "y": 115.2,
+      "param": "SPEED_PARAM"
+    }
+  ]
+}
