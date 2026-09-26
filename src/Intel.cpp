@@ -528,6 +528,30 @@ struct IntelMeterWidget : Widget {
 	}
 };
 
+// FX knob -- v3 tried to shrink the stock RoundBlackKnob just by setting
+// box.size, which does nothing visually: RoundBlackKnob draws a fixed-
+// size SVG asset regardless of box.size (the exact issue Command already
+// hit and documented for its own FEEL knobs, see SmallKnob85 there), so
+// the FX knobs had actually been rendering at full stock size (~9.6mm)
+// the whole time. This wraps RoundBlackKnob with a real nvgScale at draw
+// time, same technique as Command's SmallKnob85, so the rendered knob is
+// genuinely 6.0mm -- slightly bigger than Stellar's own 5.6mm StellarKnob,
+// per direct request -- while box.size (hit-testing) is scaled to match.
+struct IntelKnob : RoundBlackKnob {
+	static constexpr float SCALE = 0.625f; // 6.0mm / RoundBlackKnob's 9.6mm native size
+	IntelKnob() {
+		box.size = box.size.mult(SCALE);
+	}
+	void draw(const DrawArgs& args) override {
+		nvgSave(args.vg);
+		nvgTranslate(args.vg, box.size.x / 2.f, box.size.y / 2.f);
+		nvgScale(args.vg, SCALE, SCALE);
+		nvgTranslate(args.vg, -box.size.x / 2.f / SCALE, -box.size.y / 2.f / SCALE);
+		RoundBlackKnob::draw(args);
+		nvgRestore(args.vg);
+	}
+};
+
 // ---------------------------------------------------------------------
 // Widget
 // ---------------------------------------------------------------------
@@ -550,10 +574,10 @@ struct IntelWidget : ModuleWidget {
 		// SVG from the same numbers), not re-derived by hand, so the
 		// widgets can't drift out of sync with the panel artwork the way
 		// Stellar's once did.
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15.4, 41.69)), module, Intel::EXT_L_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30.51, 41.69)), module, Intel::EXT_R_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(45.61, 41.69)), module, Intel::MASTER_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(60.72, 41.69)), module, Intel::MASTER_R_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15.4, 37.51)), module, Intel::EXT_L_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30.51, 37.51)), module, Intel::EXT_R_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(45.61, 37.51)), module, Intel::MASTER_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(60.72, 37.51)), module, Intel::MASTER_R_OUTPUT));
 
 		// TRIG sub-panels: jack, then rate-div/depth fill-bar buttons stacked vertically
 		static const float jackX[4] = {16.64f, 30.92f, 45.2f, 59.48f};
@@ -563,11 +587,11 @@ struct IntelWidget : ModuleWidget {
 		static const int rateDivLight[4] = {Intel::RATEDIV1_LIGHT, Intel::RATEDIV2_LIGHT, Intel::RATEDIV3_LIGHT, Intel::RATEDIV4_LIGHT};
 		static const int depthLight[4] = {Intel::DEPTH1_LIGHT, Intel::DEPTH2_LIGHT, Intel::DEPTH3_LIGHT, Intel::DEPTH4_LIGHT};
 		for (int i = 0; i < 4; i++) {
-			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 65.08)), module, trigOut[i]));
-			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 75.38)), module, rateDivParam[i]);
+			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 60.66)), module, trigOut[i]));
+			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 71.86)), module, rateDivParam[i]);
 			rd->mod = module; rd->lightId = rateDivLight[i]; rd->color = nvgRGB(0x7F, 0x77, 0xDD);
 			addParam(rd);
-			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 83.28)), module, depthParam[i]);
+			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 80.66)), module, depthParam[i]);
 			dp->mod = module; dp->lightId = depthLight[i]; dp->color = nvgRGB(0x1D, 0x7A, 0x5C);
 			addParam(dp);
 		}
@@ -578,18 +602,16 @@ struct IntelWidget : ModuleWidget {
 		static const int fxBtnLight[4] = {Intel::DELAY_LIGHT, Intel::REVERB_LIGHT, Intel::SHIMMER_LIGHT, Intel::SYNC_LIGHT};
 		static const NVGcolor fxBtnColor[4] = {nvgRGB(0x8A, 0x64, 0x23), nvgRGB(0x8A, 0x2A, 0x2A), nvgRGB(0x2E, 0x4A, 0x6E), nvgRGB(0x6B, 0x4C, 0x8A)};
 		for (int i = 0; i < 4; i++) {
-			auto* b = createParamCentered<IntelButton>(mm2px(Vec(fxBtnX[i], 106.06)), module, fxBtnParam[i]);
+			auto* b = createParamCentered<IntelButton>(mm2px(Vec(fxBtnX[i], 105.1)), module, fxBtnParam[i]);
 			b->mod = module; b->lightId = fxBtnLight[i]; b->color = fxBtnColor[i];
 			addParam(b);
 		}
 
-		// FX knobs -- 30% smaller than the original pass
+		// FX knobs -- see IntelKnob above: genuinely 6.0mm now, not just hit-box-scaled
 		static const float fxKnobX[5] = {13.5f, 25.78f, 38.06f, 50.34f, 62.62f};
 		static const int fxKnobParam[5] = {Intel::MIX_PARAM, Intel::TIME_PARAM, Intel::REGEN_PARAM, Intel::TONE_PARAM, Intel::SPEED_PARAM};
 		for (int i = 0; i < 5; i++) {
-			auto* k = createParamCentered<RoundBlackKnob>(mm2px(Vec(fxKnobX[i], 116.28)), module, fxKnobParam[i]);
-			k->box.size = mm2px(Vec(5.6, 5.6)) * 0.7f; // matches knob_half's 30% reduction in intel_layout.py
-			addParam(k);
+			addParam(createParamCentered<IntelKnob>(mm2px(Vec(fxKnobX[i], 115.8)), module, fxKnobParam[i]));
 		}
 
 		// Meter: single full-height gradient bar, position/size from intel_layout.json

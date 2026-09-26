@@ -1,24 +1,26 @@
 """
-Intel panel v3 -- addresses direct feedback comparing a real Rack
-screenshot against Stellar side by side:
-  1. LINK lights: fixed at the C++ level in all three modules (Command,
-     Stellar, Intel) so ANY recognized family neighbor lights the LED, not
-     just one specific type per module -- not a panel-art change, see the
-     .cpp files.
-  2. METER: was a fixed-height LED strip sitting in the top portion of a
-     taller box. Redrawn as a single bar-meter track spanning the section's
-     full height, vertically centered; the SVG draws the empty groove, the
-     real widget draws the dynamic gradient-filled level on top.
-  3. FX knobs: shrunk 30% (they were touching/crowding the section border).
-  4. TRIG: buttons go from small side-by-side squares to two Stellar-sized
-     squares stacked vertically (A on top, B below) with their own visual
-     language -- 4-level fill bars (1/4..4/4) instead of flat color, each
-     one individually labeled underneath what it does. TRIG box grows to
-     fit; I/O moves up as a natural side effect of the dynamic gap solver.
-  5. FX buttons: background rectangle guide removed, replaced with an
-     octagon outline guide (the real widget draws a filled, per-button-
-     colored octagon on top, matching the family's ring-guide-then-real-
-     widget-on-top convention used everywhere else).
+Intel panel v4 -- second real-screenshot pass, comparing Intel directly
+against Stellar again:
+  1. FX knobs: the v3 "30% smaller" pass only ever shrank the invisible
+     hit-box (`box.size`) -- stock RoundBlackKnob draws a fixed-size SVG
+     asset regardless of box.size (same root cause Command already
+     documented for its own FEEL knobs), so the knobs had been rendering
+     at full stock size (~9.6mm) the whole time. Fixed for real this time
+     via a custom draw()-time nvgScale wrapper (see IntelKnob in the
+     .cpp), sized to 6.0mm -- slightly bigger than Stellar's 5.6mm knob,
+     per direct request.
+  2. I/O row: moved up to align exactly with Stellar's I/O 2 row -- the
+     gap between METER and I/O is now a fixed 5.0mm (matching Stellar's
+     own inter-section GAP constant) instead of the dynamic/oversized
+     gap v3 had, which is what pins the alignment.
+  3. TRIG: grown substantially (both from the I/O move and from bigger FX
+     knobs nudging the FX section's own height up slightly) and given its
+     own, larger label scale -- TRG n / RATE / DEPTH / cmd-link captions
+     are all bumped up a size tier. The two remaining gaps (I/O->TRIG,
+     TRIG->FX) are solved dynamically and kept EQUAL to each other, so
+     the extra room added around the taller TRIG section reads as
+     mirrored/symmetric padding rather than being dumped unevenly into
+     just one gap.
 """
 from gen_panel import text_to_path
 import json
@@ -49,6 +51,25 @@ SMALL_LABEL_H = 1.3
 SIDE_TITLE_W = 5.0
 MIN_MARGIN = 1.4
 OUTER_MARGIN = 4.5
+
+# Fixed gap between METER and I/O -- matches Stellar's own inter-section
+# GAP constant exactly, which is what makes Intel's I/O row land on the
+# same y as Stellar's I/O 2 row (both are TITLE_H + one row_height + this
+# same 5.0mm gap below their respective panel tops).
+IO_GAP = 5.0
+
+# TRIG gets its own, larger label scale (v4) -- kept separate from the
+# shared LABEL_H/SMALL_LABEL_H above so I/O and FX aren't affected.
+TRIG_GAP = 1.3
+TRIG_MARGIN = 1.6
+TRIG_LABEL_H = 1.9        # "TRG n" jack labels
+TRIG_BTN_LABEL_H = 1.6    # "RATE" / "DEPTH" labels
+TRIG_MICRO_H = 1.3        # "cmd: x" / "(hidden)" captions
+
+# FX knob guide radius -- 6.0mm diameter, slightly bigger than Stellar's
+# 5.6mm knob. The matching visual fix (an actual nvgScale, not just a
+# box.size change) lives in IntelKnob in Intel.cpp.
+FX_KNOB_DIAM = 6.0
 
 x0 = OUTER_MARGIN
 full_w = PANEL_W - 2 * x0
@@ -118,33 +139,43 @@ def centered_y(box_y, box_h, r, extra=0.0):
 port_pad = R["port"] + 0.3 + 1.2
 io_h = row_height(R["port"])
 btn_half = BUTTON_HALF
-knob_half = (R["knob"] + 0.8) * 0.7  # (3) 30% smaller than before
+knob_half = FX_KNOB_DIAM / 2  # (1) real 6.0mm knob, see IntelKnob in Intel.cpp
 
 # METER: bar spans nearly this whole section's height
 meter_h = io_h
 
-# TRIG: cursor-based -- jack, label, button A, its label, button B, its
-# label, then the existing hidden-command-link caption (2 lines)
-trig_h = (MIN_MARGIN + 2 * R["port"] + LABEL_GAP + LABEL_H
-          + LABEL_GAP + btn_half * 2 + LABEL_GAP + SMALL_LABEL_H
-          + LABEL_GAP + btn_half * 2 + LABEL_GAP + SMALL_LABEL_H
-          + LABEL_GAP + 1.3 + 1.6 + MIN_MARGIN)
+# TRIG (v4): cursor-based -- jack, label, button A, its label, button B,
+# its label, then the hidden-command-link caption (2 lines) -- using the
+# larger TRIG-only label scale, and TRIG's own (slightly more generous)
+# top/bottom margin, symmetric top and bottom.
+trig_h = (TRIG_MARGIN
+          + 2 * R["port"] + TRIG_GAP + TRIG_LABEL_H
+          + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
+          + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
+          + TRIG_GAP + TRIG_MICRO_H + TRIG_GAP + TRIG_MICRO_H
+          + TRIG_MARGIN)
 
 btn_sub_h = btn_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
 knob_sub_h = knob_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
 fx_h = btn_sub_h + knob_sub_h + 1.2
 
 y = TITLE_H
+# (2) I/O gap is fixed (aligns with Stellar's I/O 2); the two remaining
+# gaps (I/O->TRIG, TRIG->FX) share whatever's left over, EQUALLY, so the
+# extra room the taller TRIG section takes reads as mirrored/symmetric
+# padding above and below it rather than lopsided slack in one gap.
 content_h = meter_h + io_h + trig_h + fx_h
-num_gaps = 3
-GAP = (PANEL_H - OUTER_MARGIN - TITLE_H - content_h) / num_gaps
-section("meter", x0, y, full_w, meter_h, "METER"); y += meter_h + GAP
-section("io", x0, y, full_w, io_h, "I/O"); y += io_h + GAP
-section("trig", x0, y, full_w, trig_h, "TRIG", color=BRASS, border_color=BRASS); y += trig_h + GAP
+GAP2 = (PANEL_H - OUTER_MARGIN - TITLE_H - content_h - IO_GAP) / 2
+GAP3 = GAP2
+section("meter", x0, y, full_w, meter_h, "METER"); y += meter_h + IO_GAP
+section("io", x0, y, full_w, io_h, "I/O"); y += io_h + GAP2
+section("trig", x0, y, full_w, trig_h, "TRIG", color=BRASS, border_color=BRASS); y += trig_h + GAP3
 section("fx", x0, y, full_w, fx_h, "FX", color=MAROON, border_color=MAROON); y += fx_h
 
 margin = PANEL_H - y - OUTER_MARGIN
 print(f"PANEL {PANEL_W:.1f}mm (14HP) x {PANEL_H}mm -- content ends {y:.1f}mm, bottom slack {margin:.2f}mm")
+print(f"gaps: IO_GAP={IO_GAP:.2f} GAP2={GAP2:.2f} GAP3={GAP3:.2f} (2 and 3 should match, and both should be positive)")
+assert GAP2 > 0, f"TRIG grew too tall to fit -- GAP2 went negative ({GAP2:.2f}mm)"
 assert y + OUTER_MARGIN <= PANEL_H, f"OVERFLOW by {y+OUTER_MARGIN-PANEL_H:.1f}mm"
 
 layout = {
@@ -179,17 +210,23 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     micro(nm, cx, label_y)
     layout["io"].append({"x": round(cx, 2), "y": round(port_y, 2), "param": pnm, "dir": dr})
 
-# --- TRIG row: jack, then two Stellar-sized buttons stacked vertically ---
+# --- TRIG row (v4): jack, then two Stellar-sized buttons stacked
+# vertically, at the larger TRIG-only label scale, with a symmetric
+# TRIG_GAP between every stacked element (jack->label->btnA->label->
+# btnB->label->cap1->cap2), mirroring TRIG_MARGIN top and bottom.
 tx, ty, tw, th, _ = sections["trig"]
-jack_y = ty + MIN_MARGIN + R["port"]
-label_row_y = jack_y + R["port"] + LABEL_GAP + LABEL_H
-btnA_y = label_row_y + LABEL_GAP + btn_half
-btnA_label_y = btnA_y + btn_half + LABEL_GAP + SMALL_LABEL_H
-btnB_y = btnA_label_y + LABEL_GAP + btn_half
-btnB_label_y = btnB_y + btn_half + LABEL_GAP + SMALL_LABEL_H
-cap_y1 = btnB_label_y + LABEL_GAP + 1.3
-cap_y2 = cap_y1 + 1.6
+jack_y = ty + TRIG_MARGIN + R["port"]
+label_row_y = jack_y + R["port"] + TRIG_GAP + TRIG_LABEL_H
+btnA_y = label_row_y + TRIG_GAP + btn_half
+btnA_label_y = btnA_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
+btnB_y = btnA_label_y + TRIG_GAP + btn_half
+btnB_label_y = btnB_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
+cap_y1 = btnB_label_y + TRIG_GAP + TRIG_MICRO_H
+cap_y2 = cap_y1 + TRIG_GAP + TRIG_MICRO_H
 chan_w = tw / 4
+# Left/right padding within each channel's own slot, mirrored on both
+# sides, so the enlarged captions/divider never crowd the divider lines.
+chan_pad = 1.0
 cmd_links = ["rate", "dens", "swing", "entropy"]
 for i in range(4):
     cx = tx + chan_w * (i + 0.5)
@@ -197,15 +234,15 @@ for i in range(4):
         dx = tx + chan_w * i
         add(f'<line x1="{dx:.3f}" y1="{ty+0.8:.3f}" x2="{dx:.3f}" y2="{ty+th-0.8:.3f}" stroke="{BORDER}" stroke-width="0.3" opacity="0.5"/>')
     add(f'<circle cx="{cx:.3f}" cy="{jack_y:.3f}" r="{R["port"]+0.3:.3f}" fill="none" stroke="{BRASS}" stroke-width="1.6" opacity="0.55"/>')
-    micro(f"TRG {i+1}", cx, label_row_y, color=TEXT_BRIGHT, size=1.3)
+    micro(f"TRG {i+1}", cx, label_row_y, color=TEXT_BRIGHT, size=TRIG_LABEL_H)
     # Button guides only -- the real widget draws the 4-level fill bar
     add(f'<rect x="{cx-btn_half:.3f}" y="{btnA_y-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.5" fill="none" stroke="{RATE_COLOR}" stroke-width="0.45" opacity="0.6"/>')
-    micro("RATE", cx, btnA_label_y, size=SMALL_LABEL_H * 0.85)
+    micro("RATE", cx, btnA_label_y, size=TRIG_BTN_LABEL_H)
     add(f'<rect x="{cx-btn_half:.3f}" y="{btnB_y-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.5" fill="none" stroke="{DEPTH_COLOR}" stroke-width="0.45" opacity="0.6"/>')
-    micro("DEPTH", cx, btnB_label_y, size=SMALL_LABEL_H * 0.85)
-    add(f'<line x1="{tx+chan_w*i+1.0:.3f}" y1="{cap_y1-1.4:.3f}" x2="{tx+chan_w*(i+1)-1.0:.3f}" y2="{cap_y1-1.4:.3f}" stroke="{BORDER}" stroke-width="0.2" stroke-dasharray="0.5,0.5" opacity="0.6"/>')
-    micro(f"cmd: {cmd_links[i]}", cx, cap_y1, color=TEXT_DIM, size=1.0)
-    micro("(hidden)", cx, cap_y2, color=TEXT_DIM, size=1.0)
+    micro("DEPTH", cx, btnB_label_y, size=TRIG_BTN_LABEL_H)
+    add(f'<line x1="{tx+chan_w*i+chan_pad:.3f}" y1="{cap_y1-TRIG_GAP-TRIG_MICRO_H:.3f}" x2="{tx+chan_w*(i+1)-chan_pad:.3f}" y2="{cap_y1-TRIG_GAP-TRIG_MICRO_H:.3f}" stroke="{BORDER}" stroke-width="0.2" stroke-dasharray="0.5,0.5" opacity="0.6"/>')
+    micro(f"cmd: {cmd_links[i]}", cx, cap_y1, color=TEXT_DIM, size=TRIG_MICRO_H)
+    micro("(hidden)", cx, cap_y2, color=TEXT_DIM, size=TRIG_MICRO_H)
     layout["trig"].append({"x": round(cx, 2), "jack_y": round(jack_y, 2), "trig_out": f"TRIG{i+1}_OUTPUT",
                             "ratediv_y": round(btnA_y, 2), "depth_y": round(btnB_y, 2),
                             "ratediv_param": f"RATEDIV{i+1}_PARAM", "depth_param": f"DEPTH{i+1}_PARAM",
