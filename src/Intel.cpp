@@ -101,18 +101,18 @@ struct OctaveUpShifter {
 
 struct LfoChannel {
 	double phase = 0.0;
-	int rateDivState = 1; // 0 = /8, 1 = /16, 2 = /32 (relative to global Speed's quarter-note reference)
+	int rateDivState = 1; // 0 = quarter, 1 = /8, 2 = /16, 3 = /32 (relative to global Speed's quarter-note reference) -- 4 states, same fill-bar convention as depth
 	int depthState = 2;   // 0 = off, 1 = low, 2 = med, 3 = high
 	dsp::SchmittTrigger rateDivBtn, depthBtn;
 	dsp::PulseGenerator trigPulse;
 	float modValue = 0.f;
 
-	static constexpr float divMult[3] = {2.f, 4.f, 8.f};
+	static constexpr float divMult[4] = {1.f, 2.f, 4.f, 8.f};
 	static constexpr float trigProb[4] = {0.f, 0.25f, 0.6f, 1.0f};
 	static constexpr float modDepth[4] = {0.f, 0.15f, 0.35f, 0.6f};
 
 	void handleButtons(float rateDivRaw, float depthRaw) {
-		if (rateDivBtn.process(rateDivRaw)) rateDivState = (rateDivState + 1) % 3;
+		if (rateDivBtn.process(rateDivRaw)) rateDivState = (rateDivState + 1) % 4;
 		if (depthBtn.process(depthRaw)) depthState = (depthState + 1) % 4;
 	}
 
@@ -130,7 +130,7 @@ struct LfoChannel {
 		return trigPulse.process(sampleTime) ? 10.f : 0.f;
 	}
 };
-constexpr float LfoChannel::divMult[3];
+constexpr float LfoChannel::divMult[4];
 constexpr float LfoChannel::trigProb[4];
 constexpr float LfoChannel::modDepth[4];
 
@@ -157,11 +157,11 @@ struct Intel : Module {
 	enum LightIds {
 		LINK_LEFT_LIGHT, LINK_RIGHT_LIGHT,
 		DELAY_LIGHT, REVERB_LIGHT, SHIMMER_LIGHT, SYNC_LIGHT,
-		ENUMS(RATEDIV1_LIGHT, 3), ENUMS(DEPTH1_LIGHT, 3),
-		ENUMS(RATEDIV2_LIGHT, 3), ENUMS(DEPTH2_LIGHT, 3),
-		ENUMS(RATEDIV3_LIGHT, 3), ENUMS(DEPTH3_LIGHT, 3),
-		ENUMS(RATEDIV4_LIGHT, 3), ENUMS(DEPTH4_LIGHT, 3),
-		ENUMS(METER_LIGHT, 14),
+		ENUMS(RATEDIV1_LIGHT, 1), ENUMS(DEPTH1_LIGHT, 1),
+		ENUMS(RATEDIV2_LIGHT, 1), ENUMS(DEPTH2_LIGHT, 1),
+		ENUMS(RATEDIV3_LIGHT, 1), ENUMS(DEPTH3_LIGHT, 1),
+		ENUMS(RATEDIV4_LIGHT, 1), ENUMS(DEPTH4_LIGHT, 1),
+		ENUMS(METER_LIGHT, 1),
 		NUM_LIGHTS
 	};
 
@@ -250,6 +250,14 @@ struct Intel : Module {
 	static bool isCommand(Module* m) {
 		return m && m->model && m->model->plugin && m->model->plugin->slug == "SpacesCommand"
 			&& m->model->slug == "SpacesCommand";
+	}
+	// Stellar has nothing to send Intel and nothing is read from it here --
+	// this exists purely so the LINK light recognizes any family member,
+	// not just Command, matching the same "any neighbor lights it" rule
+	// Command and Stellar apply for each other.
+	static bool isStellarModule(Module* m) {
+		return m && m->model && m->model->plugin && m->model->plugin->slug == "Stellar"
+			&& m->model->slug == "Stellar";
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -351,27 +359,25 @@ struct Intel : Module {
 		} else {
 			meterLevel = clamp((std::fabs(dryL) + std::fabs(dryR)) * 0.5f, 0.f, 1.f);
 		}
-		int litLeds = clamp((int)(meterLevel * 14.f), 0, 14);
-		for (int i = 0; i < 14; i++) lights[METER_LIGHT + i].setBrightness(i < litLeds ? 1.f : 0.f);
+		lights[METER_LIGHT].setBrightness(meterLevel);
 
 		// --- LFO / trigger channels ---
 		static const int rateDivParams[4] = {RATEDIV1_PARAM, RATEDIV2_PARAM, RATEDIV3_PARAM, RATEDIV4_PARAM};
 		static const int depthParams[4] = {DEPTH1_PARAM, DEPTH2_PARAM, DEPTH3_PARAM, DEPTH4_PARAM};
 		static const int trigOutputs[4] = {TRIG1_OUTPUT, TRIG2_OUTPUT, TRIG3_OUTPUT, TRIG4_OUTPUT};
-		static const float rateDivColors[3][3] = {{0.5f,0.5f,1.f}, {0.2f,0.8f,0.3f}, {1.f,0.6f,0.1f}};
-		static const float depthColors[4][3] = {{0.3f,0.3f,0.3f}, {0.9f,0.9f,0.2f}, {0.95f,0.5f,0.1f}, {0.9f,0.15f,0.15f}};
+		static const int rateDivLights[4] = {RATEDIV1_LIGHT, RATEDIV2_LIGHT, RATEDIV3_LIGHT, RATEDIV4_LIGHT};
+		static const int depthLights[4] = {DEPTH1_LIGHT, DEPTH2_LIGHT, DEPTH3_LIGHT, DEPTH4_LIGHT};
 		float globalSpeedHz = params[SPEED_PARAM].getValue();
 		for (int i = 0; i < 4; i++) {
 			lfo[i].handleButtons(params[rateDivParams[i]].getValue(), params[depthParams[i]].getValue());
 			lfo[i].step(sr, globalSpeedHz);
 			outputs[trigOutputs[i]].setVoltage(lfo[i].trigVoltage(args.sampleTime));
-			int rd = lfo[i].rateDivState, dp = lfo[i].depthState;
-			lights[RATEDIV1_LIGHT + i * 6 + 0].setBrightness(rateDivColors[rd][0]);
-			lights[RATEDIV1_LIGHT + i * 6 + 1].setBrightness(rateDivColors[rd][1]);
-			lights[RATEDIV1_LIGHT + i * 6 + 2].setBrightness(rateDivColors[rd][2]);
-			lights[DEPTH1_LIGHT + i * 6 + 0].setBrightness(depthColors[dp][0]);
-			lights[DEPTH1_LIGHT + i * 6 + 1].setBrightness(depthColors[dp][1]);
-			lights[DEPTH1_LIGHT + i * 6 + 2].setBrightness(depthColors[dp][2]);
+			// Fill-bar convention: both buttons are 4-state (1/4..4/4 full),
+			// so a single light's brightness directly IS the fill fraction
+			// the widget draws -- no color-coding needed, the widget's own
+			// fixed accent color (rate-div vs depth) carries identity.
+			lights[rateDivLights[i]].setBrightness((lfo[i].rateDivState + 1) / 4.f);
+			lights[depthLights[i]].setBrightness((lfo[i].depthState + 1) / 4.f);
 		}
 
 		// --- Invisible Command link: send modulation offsets, floor-protected ---
@@ -383,8 +389,8 @@ struct Intel : Module {
 		// its own consumerMessage on its next process() call. Writing into
 		// your own producerMessage/flipping your own expander (what I had
 		// here initially) would just make you read your own data back.
-		lights[LINK_LEFT_LIGHT].setBrightness(cmdLeft ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(cmdRight ? 1.f : 0.f);
+		lights[LINK_LEFT_LIGHT].setBrightness(cmdLeft || isStellarModule(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(cmdRight || isStellarModule(rightExpander.module) ? 1.f : 0.f);
 		if (cmdLeft || cmdRight) {
 			IntelModMessage msg;
 			msg.rateOffset = lfo[0].modValue;
@@ -417,15 +423,16 @@ struct Intel : Module {
 // compile-checked against the real SDK this session.
 // ---------------------------------------------------------------------
 
-// Plain on/off button (DELAY/REVERB page-select, SHIMMER, SYNC) -- single
-// light, on above 0.5 brightness.
+// Octagon on/off button (DELAY/REVERB page-select, SHIMMER, SYNC) -- each
+// instance gets its own identity color (not one shared color for all
+// four); unlit = outline only, lit = filled, matching the family's
+// empty-until-lit button convention.
 struct IntelButton : ParamWidget {
 	Module* mod = nullptr;
 	int lightId = -1;
-	NVGcolor litColor = nvgRGB(0xD4, 0x53, 0x7E);
-	NVGcolor unlitColor = nvgRGB(0xDC, 0xD6, 0xC4);
+	NVGcolor color = nvgRGB(0x8A, 0x64, 0x23);
 
-	IntelButton() { box.size = mm2px(Vec(6.5, 2.4)); }
+	IntelButton() { box.size = mm2px(Vec(4.6, 4.6)); }
 
 	void onButton(const ButtonEvent& e) override {
 		ParamWidget::onButton(e);
@@ -440,24 +447,36 @@ struct IntelButton : ParamWidget {
 	}
 	void draw(const DrawArgs& args) override {
 		bool lit = mod && lightId >= 0 && mod->lights[lightId].getBrightness() > 0.5f;
+		float r = box.size.x / 2.f, cx = r, cy = box.size.y / 2.f;
 		nvgBeginPath(args.vg);
-		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 0.6f);
-		nvgFillColor(args.vg, lit ? litColor : unlitColor);
-		nvgFill(args.vg);
-		nvgStrokeColor(args.vg, nvgRGB(0x8A, 0x6D, 0x3B));
-		nvgStrokeWidth(args.vg, 0.4f);
+		for (int i = 0; i < 8; i++) {
+			float a = (22.5f + 45.f * i) * (float)M_PI / 180.f;
+			float x = cx + r * std::cos(a), y = cy + r * std::sin(a);
+			if (i == 0) nvgMoveTo(args.vg, x, y); else nvgLineTo(args.vg, x, y);
+		}
+		nvgClosePath(args.vg);
+		if (lit) {
+			nvgFillColor(args.vg, color);
+			nvgFill(args.vg);
+		}
+		nvgStrokeColor(args.vg, color);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.5, 0)).x);
 		nvgStroke(args.vg);
 	}
 };
 
-// Small square button that always shows one of several stored colors
-// (read from 3 consecutive RGB lights) -- used for rate-div/depth cycle
-// buttons, where the point is showing WHICH state, not just on/off.
-struct IntelColorButton : ParamWidget {
+// Vertical 4-level fill-bar button (TRIG's rate-div/depth cycle controls).
+// Both buttons on a channel are 4-state, shown as 1/4..4/4 fill from the
+// bottom, rather than a flat color per state -- state is read straight
+// off a single light's brightness (already stored as the fill fraction
+// by the DSP side), and each instance carries its own fixed accent color
+// (rate-div vs depth) so identity doesn't depend on the fill level.
+struct IntelBarButton : ParamWidget {
 	Module* mod = nullptr;
-	int lightId = -1; // first of 3 consecutive R,G,B lights
+	int lightId = -1;
+	NVGcolor color = nvgRGB(0x7F, 0x77, 0xDD);
 
-	IntelColorButton() { box.size = mm2px(Vec(2.2, 2.2)); }
+	IntelBarButton() { box.size = mm2px(Vec(4.6, 4.6)); }
 
 	void onButton(const ButtonEvent& e) override {
 		ParamWidget::onButton(e);
@@ -471,15 +490,40 @@ struct IntelColorButton : ParamWidget {
 		if (ParamQuantity* pq = getParamQuantity()) pq->setValue(0.f);
 	}
 	void draw(const DrawArgs& args) override {
-		NVGcolor fill = nvgRGB(0x88, 0x88, 0x88);
-		if (mod && lightId >= 0) {
-			fill = nvgRGBf(mod->lights[lightId + 0].getBrightness(),
-			               mod->lights[lightId + 1].getBrightness(),
-			               mod->lights[lightId + 2].getBrightness());
-		}
+		float level = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.25f;
 		nvgBeginPath(args.vg);
-		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, 0.4f);
-		nvgFillColor(args.vg, fill);
+		nvgRoundedRect(args.vg, 0.f, 0.f, box.size.x, box.size.y, mm2px(Vec(0.5, 0)).x);
+		nvgStrokeColor(args.vg, color);
+		nvgStrokeWidth(args.vg, mm2px(Vec(0.45, 0)).x);
+		nvgStroke(args.vg);
+		float inset = mm2px(Vec(0.5, 0)).x;
+		float fullH = box.size.y - 2.f * inset;
+		float fillH = fullH * clamp(level, 0.f, 1.f);
+		nvgBeginPath(args.vg);
+		nvgRect(args.vg, inset, box.size.y - inset - fillH, box.size.x - 2.f * inset, fillH);
+		nvgFillColor(args.vg, color);
+		nvgFill(args.vg);
+	}
+};
+
+// Full-height gradient bar meter, replacing a discrete LED ladder --
+// static groove is in the SVG, this widget draws the dynamic fill on top,
+// green->amber->red by level, matching the "nice bar-based visual, full
+// section height" request.
+struct IntelMeterWidget : Widget {
+	Module* mod = nullptr;
+	int lightId = -1;
+
+	void draw(const DrawArgs& args) override {
+		float level = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.f;
+		level = clamp(level, 0.f, 1.f);
+		float fillW = box.size.x * level;
+		if (fillW < 1.f) return;
+		NVGpaint grad = nvgLinearGradient(args.vg, 0.f, 0.f, box.size.x, 0.f,
+			nvgRGB(0x4C, 0xA6, 0x4C), nvgRGB(0xD1, 0x4A, 0x3A));
+		nvgBeginPath(args.vg);
+		nvgRoundedRect(args.vg, 0.f, 0.f, fillW, box.size.y, mm2px(Vec(1.0, 0)).x);
+		nvgFillPaint(args.vg, grad);
 		nvgFill(args.vg);
 	}
 };
@@ -498,62 +542,63 @@ struct IntelWidget : ModuleWidget {
 		// setPanel() auto-sizes from the SVG's own declared height, which
 		// is the only path that lands exactly on 380px.
 
-		addChild(createLightCentered<SmallLight<WhiteLight>>(mm2px(Vec(5.5, 5.5)), module, Intel::LINK_LEFT_LIGHT));
-		addChild(createLightCentered<SmallLight<WhiteLight>>(mm2px(Vec(65.62, 5.5)), module, Intel::LINK_RIGHT_LIGHT));
+		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(5.5, 5.5)), module, Intel::LINK_LEFT_LIGHT));
+		addChild(createLightCentered<SmallLight<BlueLight>>(mm2px(Vec(65.62, 5.5)), module, Intel::LINK_RIGHT_LIGHT));
 
 		// I/O row -- coordinates below are copied directly from
 		// intel_layout.json (generated by intel_layout.py alongside the
 		// SVG from the same numbers), not re-derived by hand, so the
 		// widgets can't drift out of sync with the panel artwork the way
 		// Stellar's once did.
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15.4, 43.8)), module, Intel::EXT_L_INPUT));
-		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30.51, 43.8)), module, Intel::EXT_R_INPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(45.61, 43.8)), module, Intel::MASTER_L_OUTPUT));
-		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(60.72, 43.8)), module, Intel::MASTER_R_OUTPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(15.4, 41.69)), module, Intel::EXT_L_INPUT));
+		addInput(createInputCentered<PJ301MPort>(mm2px(Vec(30.51, 41.69)), module, Intel::EXT_R_INPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(45.61, 41.69)), module, Intel::MASTER_L_OUTPUT));
+		addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(60.72, 41.69)), module, Intel::MASTER_R_OUTPUT));
 
-		// TRIG sub-panels: jack + rate-div/depth button pair
+		// TRIG sub-panels: jack, then rate-div/depth fill-bar buttons stacked vertically
 		static const float jackX[4] = {16.64f, 30.92f, 45.2f, 59.48f};
-		static const float rdX[4] = {12.94f, 27.22f, 41.5f, 55.78f};
-		static const float dpX[4] = {20.34f, 34.62f, 48.9f, 63.18f};
 		static const int trigOut[4] = {Intel::TRIG1_OUTPUT, Intel::TRIG2_OUTPUT, Intel::TRIG3_OUTPUT, Intel::TRIG4_OUTPUT};
 		static const int rateDivParam[4] = {Intel::RATEDIV1_PARAM, Intel::RATEDIV2_PARAM, Intel::RATEDIV3_PARAM, Intel::RATEDIV4_PARAM};
 		static const int depthParam[4] = {Intel::DEPTH1_PARAM, Intel::DEPTH2_PARAM, Intel::DEPTH3_PARAM, Intel::DEPTH4_PARAM};
 		static const int rateDivLight[4] = {Intel::RATEDIV1_LIGHT, Intel::RATEDIV2_LIGHT, Intel::RATEDIV3_LIGHT, Intel::RATEDIV4_LIGHT};
 		static const int depthLight[4] = {Intel::DEPTH1_LIGHT, Intel::DEPTH2_LIGHT, Intel::DEPTH3_LIGHT, Intel::DEPTH4_LIGHT};
 		for (int i = 0; i < 4; i++) {
-			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 70.1)), module, trigOut[i]));
-			auto* rd = createParamCentered<IntelColorButton>(mm2px(Vec(rdX[i], 80.4)), module, rateDivParam[i]);
-			rd->mod = module; rd->lightId = rateDivLight[i];
+			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 65.08)), module, trigOut[i]));
+			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 75.38)), module, rateDivParam[i]);
+			rd->mod = module; rd->lightId = rateDivLight[i]; rd->color = nvgRGB(0x7F, 0x77, 0xDD);
 			addParam(rd);
-			auto* dp = createParamCentered<IntelColorButton>(mm2px(Vec(dpX[i], 80.4)), module, depthParam[i]);
-			dp->mod = module; dp->lightId = depthLight[i];
+			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 83.28)), module, depthParam[i]);
+			dp->mod = module; dp->lightId = depthLight[i]; dp->color = nvgRGB(0x1D, 0x7A, 0x5C);
 			addParam(dp);
 		}
 
-		// FX buttons
+		// FX buttons -- octagons, each with its own identity color
 		static const float fxBtnX[4] = {13.5f, 29.87f, 46.25f, 62.62f};
 		static const int fxBtnParam[4] = {Intel::DELAY_PARAM, Intel::REVERB_PARAM, Intel::SHIMMER_PARAM, Intel::SYNC_PARAM};
 		static const int fxBtnLight[4] = {Intel::DELAY_LIGHT, Intel::REVERB_LIGHT, Intel::SHIMMER_LIGHT, Intel::SYNC_LIGHT};
+		static const NVGcolor fxBtnColor[4] = {nvgRGB(0x8A, 0x64, 0x23), nvgRGB(0x8A, 0x2A, 0x2A), nvgRGB(0x2E, 0x4A, 0x6E), nvgRGB(0x6B, 0x4C, 0x8A)};
 		for (int i = 0; i < 4; i++) {
-			auto* b = createParamCentered<IntelButton>(mm2px(Vec(fxBtnX[i], 103.9)), module, fxBtnParam[i]);
-			b->mod = module; b->lightId = fxBtnLight[i];
+			auto* b = createParamCentered<IntelButton>(mm2px(Vec(fxBtnX[i], 106.06)), module, fxBtnParam[i]);
+			b->mod = module; b->lightId = fxBtnLight[i]; b->color = fxBtnColor[i];
 			addParam(b);
 		}
 
-		// FX knobs
+		// FX knobs -- 30% smaller than the original pass
 		static const float fxKnobX[5] = {13.5f, 25.78f, 38.06f, 50.34f, 62.62f};
 		static const int fxKnobParam[5] = {Intel::MIX_PARAM, Intel::TIME_PARAM, Intel::REGEN_PARAM, Intel::TONE_PARAM, Intel::SPEED_PARAM};
 		for (int i = 0; i < 5; i++) {
-			addParam(createParamCentered<RoundBlackKnob>(mm2px(Vec(fxKnobX[i], 115.2)), module, fxKnobParam[i]));
+			auto* k = createParamCentered<RoundBlackKnob>(mm2px(Vec(fxKnobX[i], 116.28)), module, fxKnobParam[i]);
+			k->box.size = mm2px(Vec(5.6, 5.6)) * 0.7f; // matches knob_half's 30% reduction in intel_layout.py
+			addParam(k);
 		}
 
-		// Meter (14 LEDs) -- meter box spans x=9.5..63.82, y=13.9..19.9 per layout
-		for (int i = 0; i < 14; i++) {
-			float ledAreaW = 54.32f - 2.0f * 1.4f; // mw - 2*MIN_MARGIN, from intel_layout.py
-			float ledW = ledAreaW / 14.f - 0.4f;
-			float x = 9.5f + 1.4f + i * (ledW + 0.4f) + ledW / 2.f;
-			addChild(createLightCentered<SmallLight<GreenLight>>(mm2px(Vec(x, 16.9)), module, Intel::METER_LIGHT + i));
-		}
+		// Meter: single full-height gradient bar, position/size from intel_layout.json
+		auto* meter = new IntelMeterWidget();
+		meter->box.pos = mm2px(Vec(10.9, 13.9));
+		meter->box.size = mm2px(Vec(54.32, 11.41));
+		meter->mod = module;
+		meter->lightId = Intel::METER_LIGHT;
+		addChild(meter);
 	}
 };
 

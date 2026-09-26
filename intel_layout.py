@@ -1,27 +1,33 @@
 """
-Intel panel v2 -- rebuilt to match Stellar's actual design system exactly
-(same color constants, same margins, same ring-only jack/button/knob
-style with the real widget drawn on top in C++, same double-stroke micro
-label technique, same full-width "section" row convention with a rotated
-side title in a reserved margin) rather than an approximate, independently
-invented style. v1 used solid filled jacks/buttons and different colors --
-this version borrows the actual constants and helper patterns from
-stellar_layout.py directly.
-
-Deliberate structural exception, kept from earlier discussion: the TRIG
-row is one Stellar-style full-width section, but internally divided into
-4 channel groups (vertical divider lines) so each TRG jack stays visually
-paired with its own rate-div/depth button pair -- that grouping was an
-explicit earlier design decision, preserved here inside the new style.
+Intel panel v3 -- addresses direct feedback comparing a real Rack
+screenshot against Stellar side by side:
+  1. LINK lights: fixed at the C++ level in all three modules (Command,
+     Stellar, Intel) so ANY recognized family neighbor lights the LED, not
+     just one specific type per module -- not a panel-art change, see the
+     .cpp files.
+  2. METER: was a fixed-height LED strip sitting in the top portion of a
+     taller box. Redrawn as a single bar-meter track spanning the section's
+     full height, vertically centered; the SVG draws the empty groove, the
+     real widget draws the dynamic gradient-filled level on top.
+  3. FX knobs: shrunk 30% (they were touching/crowding the section border).
+  4. TRIG: buttons go from small side-by-side squares to two Stellar-sized
+     squares stacked vertically (A on top, B below) with their own visual
+     language -- 4-level fill bars (1/4..4/4) instead of flat color, each
+     one individually labeled underneath what it does. TRIG box grows to
+     fit; I/O moves up as a natural side effect of the dynamic gap solver.
+  5. FX buttons: background rectangle guide removed, replaced with an
+     octagon outline guide (the real widget draws a filled, per-button-
+     colored octagon on top, matching the family's ring-guide-then-real-
+     widget-on-top convention used everywhere else).
 """
 from gen_panel import text_to_path
 import json
+import math
 
 HP = 5.08
 PANEL_H = 128.5
-PANEL_W = 14 * HP  # 71.12mm -- explicitly matched to Stellar's own size
+PANEL_W = 14 * HP  # 71.12mm -- matched to Stellar's own size
 
-# --- Exact same palette as Stellar (stellar_layout.py) ---
 BG, BG2 = "#F5F1E9", "#EDE7DC"
 BORDER = "#8A7F6A"
 TEXT_DIM = "#4A4438"
@@ -31,15 +37,15 @@ SLOT = "#DDD6C6"
 BRASS = "#8A6423"
 MAROON = "#8A2A2A"
 NAVY = "#2E4A6E"
-RATE_COLOR = "#6B63C7"   # new to Intel (rate-div button ring) -- kept distinct from the family palette above since it's a new function, chosen close in saturation/value so it doesn't clash
-DEPTH_COLOR = "#1D7A5C"  # new to Intel (depth button ring), same reasoning
+PLUM = "#6B4C8A"        # 4th FX-button identity color (SYNC)
+RATE_COLOR = "#6B63C7"
+DEPTH_COLOR = "#1D7A5C"
 
 R = {"knob": 2.8, "port": 26 / 2 / (75 / 25.4), "light": 1.0}
 BUTTON_HALF = 2.3
-BTN_GAP = 1.0
 LABEL_GAP = 1.0
 LABEL_H = 1.6
-GAP = 5.0
+SMALL_LABEL_H = 1.3
 SIDE_TITLE_W = 5.0
 MIN_MARGIN = 1.4
 OUTER_MARGIN = 4.5
@@ -65,7 +71,14 @@ def micro(text, x, y, color=MICRO, size=1.1):
     p2, _ = txt(text, x + 0.04, y, size, color, anchor="middle")
     add(p2)
 
-# --- Title, same formula as Stellar: cleared past the left LINK light ---
+def octagon_points(cx, cy, r):
+    pts = []
+    for i in range(8):
+        a = math.radians(22.5 + 45 * i)
+        pts.append(f"{cx+r*math.cos(a):.3f},{cy+r*math.sin(a):.3f}")
+    return " ".join(pts)
+
+# --- Title ---
 title_x = x0 + (R["light"] + 0.6) * 2 + 1.5
 p, _ = txt("INTEL", title_x, 7.2, 4.4, TEXT_BRIGHT)
 add(p)
@@ -103,14 +116,20 @@ def centered_y(box_y, box_h, r, extra=0.0):
 
 # --- Row heights ---
 port_pad = R["port"] + 0.3 + 1.2
-meter_h = 8.0 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
 io_h = row_height(R["port"])
 btn_half = BUTTON_HALF
-knob_half = R["knob"] + 0.8
-trig_label_h = LABEL_GAP + LABEL_H
-trig_btn_h = LABEL_GAP + btn_half * 2
-trig_cap_h = LABEL_GAP + 2 * 1.5
-trig_h = 2 * R["port"] + trig_label_h + trig_btn_h + trig_cap_h + 2 * MIN_MARGIN
+knob_half = (R["knob"] + 0.8) * 0.7  # (3) 30% smaller than before
+
+# METER: bar spans nearly this whole section's height
+meter_h = io_h
+
+# TRIG: cursor-based -- jack, label, button A, its label, button B, its
+# label, then the existing hidden-command-link caption (2 lines)
+trig_h = (MIN_MARGIN + 2 * R["port"] + LABEL_GAP + LABEL_H
+          + LABEL_GAP + btn_half * 2 + LABEL_GAP + SMALL_LABEL_H
+          + LABEL_GAP + btn_half * 2 + LABEL_GAP + SMALL_LABEL_H
+          + LABEL_GAP + 1.3 + 1.6 + MIN_MARGIN)
+
 btn_sub_h = btn_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
 knob_sub_h = knob_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
 fx_h = btn_sub_h + knob_sub_h + 1.2
@@ -134,18 +153,17 @@ layout = {
     "meter": {}, "io": [], "trig": [], "fx_buttons": [], "fx_knobs": [],
 }
 
-# --- METER: same SLOT box, custom LED-cell content instead of jacks ---
+# --- METER: full-height bar track (static groove; widget draws the dynamic fill) ---
 mx, my, mw, mh, _ = sections["meter"]
-n_leds = 14
-led_area_w = mw - 2 * MIN_MARGIN
-led_w = led_area_w / n_leds - 0.4
-led_y = my + MIN_MARGIN
-for i in range(n_leds):
-    lx = mx + MIN_MARGIN + i * (led_w + 0.4)
-    add(f'<rect x="{lx:.3f}" y="{led_y:.3f}" width="{led_w:.3f}" height="6.0" rx="0.3" fill="{MICRO}" opacity="0.85"/>')
-layout["meter"] = {"x": round(mx, 2), "y": round(led_y, 2), "w": round(led_area_w, 2), "h": 6.0, "n_leds": n_leds}
+bar_x = mx + MIN_MARGIN
+bar_y = my + MIN_MARGIN
+bar_w = mw - 2 * MIN_MARGIN
+bar_h = mh - 2 * MIN_MARGIN
+add(f'<rect x="{bar_x:.3f}" y="{bar_y:.3f}" width="{bar_w:.3f}" height="{bar_h:.3f}" rx="1.2" fill="{MICRO}" opacity="0.25"/>')
+add(f'<rect x="{bar_x:.3f}" y="{bar_y:.3f}" width="{bar_w:.3f}" height="{bar_h:.3f}" rx="1.2" fill="none" stroke="{BORDER}" stroke-width="0.35" opacity="0.6"/>')
+layout["meter"] = {"x": round(bar_x, 2), "y": round(bar_y, 2), "w": round(bar_w, 2), "h": round(bar_h, 2)}
 
-# --- I/O row: identical convention to Stellar's io_row() ---
+# --- I/O row ---
 ix, iy, iw, ih, _ = sections["io"]
 port_y = centered_y(iy, ih, R["port"])
 label_y = port_y + R["port"] + LABEL_GAP + LABEL_H
@@ -161,12 +179,15 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     micro(nm, cx, label_y)
     layout["io"].append({"x": round(cx, 2), "y": round(port_y, 2), "param": pnm, "dir": dr})
 
-# --- TRIG row: one Stellar-style section, internally divided into 4 channel groups ---
+# --- TRIG row: jack, then two Stellar-sized buttons stacked vertically ---
 tx, ty, tw, th, _ = sections["trig"]
 jack_y = ty + MIN_MARGIN + R["port"]
 label_row_y = jack_y + R["port"] + LABEL_GAP + LABEL_H
-btn_y = label_row_y + LABEL_GAP + btn_half
-cap_y1 = btn_y + btn_half + LABEL_GAP + 1.3
+btnA_y = label_row_y + LABEL_GAP + btn_half
+btnA_label_y = btnA_y + btn_half + LABEL_GAP + SMALL_LABEL_H
+btnB_y = btnA_label_y + LABEL_GAP + btn_half
+btnB_label_y = btnB_y + btn_half + LABEL_GAP + SMALL_LABEL_H
+cap_y1 = btnB_label_y + LABEL_GAP + 1.3
 cap_y2 = cap_y1 + 1.6
 chan_w = tw / 4
 cmd_links = ["rate", "dens", "swing", "entropy"]
@@ -177,19 +198,20 @@ for i in range(4):
         add(f'<line x1="{dx:.3f}" y1="{ty+0.8:.3f}" x2="{dx:.3f}" y2="{ty+th-0.8:.3f}" stroke="{BORDER}" stroke-width="0.3" opacity="0.5"/>')
     add(f'<circle cx="{cx:.3f}" cy="{jack_y:.3f}" r="{R["port"]+0.3:.3f}" fill="none" stroke="{BRASS}" stroke-width="1.6" opacity="0.55"/>')
     micro(f"TRG {i+1}", cx, label_row_y, color=TEXT_BRIGHT, size=1.3)
-    rdx, ddx = cx - (btn_half + BTN_GAP / 2 + 0.9), cx + (btn_half + BTN_GAP / 2 + 0.9)
-    add(f'<rect x="{rdx-1.1:.3f}" y="{btn_y-1.1:.3f}" width="2.2" height="2.2" rx="0.4" fill="none" stroke="{RATE_COLOR}" stroke-width="0.5" opacity="0.7"/>')
-    add(f'<rect x="{ddx-1.1:.3f}" y="{btn_y-1.1:.3f}" width="2.2" height="2.2" rx="0.4" fill="none" stroke="{DEPTH_COLOR}" stroke-width="0.5" opacity="0.7"/>')
+    # Button guides only -- the real widget draws the 4-level fill bar
+    add(f'<rect x="{cx-btn_half:.3f}" y="{btnA_y-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.5" fill="none" stroke="{RATE_COLOR}" stroke-width="0.45" opacity="0.6"/>')
+    micro("RATE", cx, btnA_label_y, size=SMALL_LABEL_H * 0.85)
+    add(f'<rect x="{cx-btn_half:.3f}" y="{btnB_y-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.5" fill="none" stroke="{DEPTH_COLOR}" stroke-width="0.45" opacity="0.6"/>')
+    micro("DEPTH", cx, btnB_label_y, size=SMALL_LABEL_H * 0.85)
     add(f'<line x1="{tx+chan_w*i+1.0:.3f}" y1="{cap_y1-1.4:.3f}" x2="{tx+chan_w*(i+1)-1.0:.3f}" y2="{cap_y1-1.4:.3f}" stroke="{BORDER}" stroke-width="0.2" stroke-dasharray="0.5,0.5" opacity="0.6"/>')
     micro(f"cmd: {cmd_links[i]}", cx, cap_y1, color=TEXT_DIM, size=1.0)
     micro("(hidden)", cx, cap_y2, color=TEXT_DIM, size=1.0)
     layout["trig"].append({"x": round(cx, 2), "jack_y": round(jack_y, 2), "trig_out": f"TRIG{i+1}_OUTPUT",
-                            "ratediv_x": round(rdx, 2), "depth_x": round(ddx, 2), "button_y": round(btn_y, 2),
+                            "ratediv_y": round(btnA_y, 2), "depth_y": round(btnB_y, 2),
                             "ratediv_param": f"RATEDIV{i+1}_PARAM", "depth_param": f"DEPTH{i+1}_PARAM",
                             "cmd_link": cmd_links[i]})
-add(f'<line x1="{tx:.3f}" y1="{ty:.3f}" x2="{tx:.3f}" y2="{ty+th:.3f}" stroke="none"/>')  # (no-op, keeps structure explicit)
 
-# --- FX section: buttons on top, knobs below -- same bundling as Stellar's voice_row() ---
+# --- FX section: octagon buttons (own colors) on top, smaller knobs below ---
 fx_x, fx_y, fx_w, fx_h2, _ = sections["fx"]
 fx_top_cy = fx_y + MIN_MARGIN + btn_half
 fx_bot_cy = fx_y + btn_sub_h + MIN_MARGIN + knob_half
@@ -197,12 +219,13 @@ fx_pad = 4.0
 fx_usable = fx_w - 2 * fx_pad
 fx_btn_names = ["DELAY", "REVERB", "SHIM", "SYNC"]
 fx_btn_params = ["DELAY_PARAM", "REVERB_PARAM", "SHIMMER_PARAM", "SYNC_PARAM"]
+fx_btn_colors = [BRASS, MAROON, NAVY, PLUM]
 bstep = fx_usable / (len(fx_btn_names) - 1)
-for i, (nm, pnm) in enumerate(zip(fx_btn_names, fx_btn_params)):
+for i, (nm, pnm, col) in enumerate(zip(fx_btn_names, fx_btn_params, fx_btn_colors)):
     cx = fx_x + fx_pad + bstep * i
-    add(f'<rect x="{cx-btn_half:.3f}" y="{fx_top_cy-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.7" fill="none" stroke="{MAROON}" stroke-width="0.45" opacity="0.55"/>')
+    add(f'<polygon points="{octagon_points(cx, fx_top_cy, btn_half)}" fill="none" stroke="{col}" stroke-width="0.5" opacity="0.65"/>')
     micro(nm, cx, fx_top_cy + btn_half + LABEL_GAP + LABEL_H)
-    layout["fx_buttons"].append({"x": round(cx, 2), "y": round(fx_top_cy, 2), "param": pnm})
+    layout["fx_buttons"].append({"x": round(cx, 2), "y": round(fx_top_cy, 2), "param": pnm, "color": col})
 
 fx_knob_names = ["MIX", "TIME", "REGEN", "TONE", "SPEED"]
 fx_knob_params = ["MIX_PARAM", "TIME_PARAM", "REGEN_PARAM", "TONE_PARAM", "SPEED_PARAM"]
@@ -210,7 +233,7 @@ kstep = fx_usable / (len(fx_knob_names) - 1)
 for i, (nm, pnm) in enumerate(zip(fx_knob_names, fx_knob_params)):
     cx = fx_x + fx_pad + kstep * i
     accent = NAVY if nm == "SPEED" else MAROON
-    add(f'<circle cx="{cx:.3f}" cy="{fx_bot_cy:.3f}" r="{knob_half:.3f}" fill="none" stroke="{accent}" stroke-width="0.45" opacity="0.55"/>')
+    add(f'<circle cx="{cx:.3f}" cy="{fx_bot_cy:.3f}" r="{knob_half:.3f}" fill="none" stroke="{accent}" stroke-width="0.4" opacity="0.55"/>')
     micro(nm, cx, fx_bot_cy + knob_half + LABEL_GAP + LABEL_H)
     layout["fx_knobs"].append({"x": round(cx, 2), "y": round(fx_bot_cy, 2), "param": pnm})
 
