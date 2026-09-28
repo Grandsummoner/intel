@@ -377,7 +377,10 @@ struct Intel : Module {
 			// the widget draws -- no color-coding needed, the widget's own
 			// fixed accent color (rate-div vs depth) carries identity.
 			lights[rateDivLights[i]].setBrightness((lfo[i].rateDivState + 1) / 4.f);
-			lights[depthLights[i]].setBrightness((lfo[i].depthState + 1) / 4.f);
+			// (v5) DEPTH's fill now genuinely spans 0 (no LFO) -> 1 (max
+			// LFO) in 3 even steps, matching depthState 0..3 exactly --
+			// was (state+1)/4, which never showed empty even at state 0.
+			lights[depthLights[i]].setBrightness(lfo[i].depthState / 3.f);
 		}
 
 		// --- Invisible Command link: send modulation offsets, floor-protected ---
@@ -397,6 +400,13 @@ struct Intel : Module {
 			msg.densOffset = lfo[1].modValue;
 			msg.swingOffset = lfo[2].modValue;
 			msg.entropyOffset = lfo[3].modValue;
+			// (v5) static DEPTH-setting level per channel, for Command's
+			// new depth-gauge display -- same 0..1-in-3-steps scale as
+			// the button's own fill (see brightness calc above).
+			msg.rateDepth = lfo[0].depthState / 3.f;
+			msg.densDepth = lfo[1].depthState / 3.f;
+			msg.swingDepth = lfo[2].depthState / 3.f;
+			msg.entropyDepth = lfo[3].depthState / 3.f;
 			msg.present = true;
 			// Command applies its own floor protection against these
 			// offsets (it knows its real parameter ranges); Intel just
@@ -587,11 +597,11 @@ struct IntelWidget : ModuleWidget {
 		static const int rateDivLight[4] = {Intel::RATEDIV1_LIGHT, Intel::RATEDIV2_LIGHT, Intel::RATEDIV3_LIGHT, Intel::RATEDIV4_LIGHT};
 		static const int depthLight[4] = {Intel::DEPTH1_LIGHT, Intel::DEPTH2_LIGHT, Intel::DEPTH3_LIGHT, Intel::DEPTH4_LIGHT};
 		for (int i = 0; i < 4; i++) {
-			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 60.66)), module, trigOut[i]));
-			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 71.86)), module, rateDivParam[i]);
-			rd->mod = module; rd->lightId = rateDivLight[i]; rd->color = nvgRGB(0x7F, 0x77, 0xDD);
+			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 61.86)), module, trigOut[i]));
+			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 73.06)), module, rateDivParam[i]);
+			rd->mod = module; rd->lightId = rateDivLight[i]; rd->color = nvgRGB(0x4A, 0x6F, 0xA5); // steel blue (was purple)
 			addParam(rd);
-			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 80.66)), module, depthParam[i]);
+			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 84.66)), module, depthParam[i]);
 			dp->mod = module; dp->lightId = depthLight[i]; dp->color = nvgRGB(0x1D, 0x7A, 0x5C);
 			addParam(dp);
 		}

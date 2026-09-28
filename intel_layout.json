@@ -44,40 +44,40 @@
   "trig": [
     {
       "x": 16.64,
-      "jack_y": 60.66,
+      "jack_y": 61.86,
       "trig_out": "TRIG1_OUTPUT",
-      "ratediv_y": 71.86,
-      "depth_y": 80.66,
+      "ratediv_y": 73.06,
+      "depth_y": 84.66,
       "ratediv_param": "RATEDIV1_PARAM",
       "depth_param": "DEPTH1_PARAM",
       "cmd_link": "rate"
     },
     {
       "x": 30.92,
-      "jack_y": 60.66,
+      "jack_y": 61.86,
       "trig_out": "TRIG2_OUTPUT",
-      "ratediv_y": 71.86,
-      "depth_y": 80.66,
+      "ratediv_y": 73.06,
+      "depth_y": 84.66,
       "ratediv_param": "RATEDIV2_PARAM",
       "depth_param": "DEPTH2_PARAM",
       "cmd_link": "dens"
     },
     {
       "x": 45.2,
-      "jack_y": 60.66,
+      "jack_y": 61.86,
       "trig_out": "TRIG3_OUTPUT",
-      "ratediv_y": 71.86,
-      "depth_y": 80.66,
+      "ratediv_y": 73.06,
+      "depth_y": 84.66,
       "ratediv_param": "RATEDIV3_PARAM",
       "depth_param": "DEPTH3_PARAM",
       "cmd_link": "swing"
     },
     {
       "x": 59.48,
-      "jack_y": 60.66,
+      "jack_y": 61.86,
       "trig_out": "TRIG4_OUTPUT",
-      "ratediv_y": 71.86,
-      "depth_y": 80.66,
+      "ratediv_y": 73.06,
+      "depth_y": 84.66,
       "ratediv_param": "RATEDIV4_PARAM",
       "depth_param": "DEPTH4_PARAM",
       "cmd_link": "entropy"

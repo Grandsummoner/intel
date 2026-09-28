@@ -1,6 +1,26 @@
 """
-Intel panel v4 -- second real-screenshot pass, comparing Intel directly
-against Stellar again:
+Intel panel v5 -- direct feedback on the v4 TRIG redesign:
+  1. RATE button: purple -> steel blue (#4A6FA5), deliberately distinct
+     from the family's existing NAVY so it can't be confused with one of
+     the 4 colors now used on Command's new depth gauges (see below).
+  2. Per-channel "cmd: x / (hidden)" captions were still too cryptic --
+     replaced with a single shared header ("FOR: COMMAND MODULE") drawn
+     once above the DEPTH row, rather than 2 lines of jargon repeated
+     under each of the 4 channels.
+  3. DEPTH's fill-bar semantics corrected: was (state+1)/4 (never
+     visually empty even at state 0), now state/3 so it genuinely reads
+     0% at "no LFO" through 100% at "max LFO" in 3 even steps. Matching
+     fix applied in Intel.cpp's brightness calc.
+  4. Companion feature on Command (see SpacesCommand.cpp/
+     spaces_command_layout.py): a subtle, non-gaudy arc gauge drawn
+     around each of the 4 modulated knobs (RATE/ENTROPY/DENS/SWING),
+     filling clockwise with the same 0..3 depth setting sent over the
+     expander link (new *Depth fields in IntelLink.hpp) -- only visible
+     while Intel is actually adjacent. Uses Intel's existing FX quartet
+     (brass/maroon/navy/plum) so the two panels read as one family, kept
+     deliberately distinct from Intel's own RATE-blue/DEPTH-teal.
+
+Previous (v4) notes:
   1. FX knobs: the v3 "30% smaller" pass only ever shrank the invisible
      hit-box (`box.size`) -- stock RoundBlackKnob draws a fixed-size SVG
      asset regardless of box.size (same root cause Command already
@@ -13,14 +33,10 @@ against Stellar again:
      gap between METER and I/O is now a fixed 5.0mm (matching Stellar's
      own inter-section GAP constant) instead of the dynamic/oversized
      gap v3 had, which is what pins the alignment.
-  3. TRIG: grown substantially (both from the I/O move and from bigger FX
-     knobs nudging the FX section's own height up slightly) and given its
-     own, larger label scale -- TRG n / RATE / DEPTH / cmd-link captions
-     are all bumped up a size tier. The two remaining gaps (I/O->TRIG,
-     TRIG->FX) are solved dynamically and kept EQUAL to each other, so
-     the extra room added around the taller TRIG section reads as
-     mirrored/symmetric padding rather than being dumped unevenly into
-     just one gap.
+  3. TRIG: grown substantially and given its own, larger label scale.
+     The two remaining gaps (I/O->TRIG, TRIG->FX) are solved dynamically
+     and kept EQUAL to each other, so the extra room reads as
+     mirrored/symmetric padding rather than being dumped into one spot.
 """
 from gen_panel import text_to_path
 import json
@@ -40,7 +56,9 @@ BRASS = "#8A6423"
 MAROON = "#8A2A2A"
 NAVY = "#2E4A6E"
 PLUM = "#6B4C8A"        # 4th FX-button identity color (SYNC)
-RATE_COLOR = "#6B63C7"
+RATE_COLOR = "#4A6FA5"   # steel blue (was purple #6B63C7) -- deliberately NOT the
+                         # family's existing NAVY (#2E4A6E), since NAVY is one of
+                         # the 4 colors reused on Command's depth gauges below
 DEPTH_COLOR = "#1D7A5C"
 
 R = {"knob": 2.8, "port": 26 / 2 / (75 / 25.4), "light": 1.0}
@@ -64,7 +82,8 @@ TRIG_GAP = 1.3
 TRIG_MARGIN = 1.6
 TRIG_LABEL_H = 1.9        # "TRG n" jack labels
 TRIG_BTN_LABEL_H = 1.6    # "RATE" / "DEPTH" labels
-TRIG_MICRO_H = 1.3        # "cmd: x" / "(hidden)" captions
+TRIG_HEADER_H = 1.5       # shared "FOR: COMMAND MODULE" header (v5, replaces
+                          # the old per-channel "cmd: x / (hidden)" captions)
 
 # FX knob guide radius -- 6.0mm diameter, slightly bigger than Stellar's
 # 5.6mm knob. The matching visual fix (an actual nvgScale, not just a
@@ -144,15 +163,15 @@ knob_half = FX_KNOB_DIAM / 2  # (1) real 6.0mm knob, see IntelKnob in Intel.cpp
 # METER: bar spans nearly this whole section's height
 meter_h = io_h
 
-# TRIG (v4): cursor-based -- jack, label, button A, its label, button B,
-# its label, then the hidden-command-link caption (2 lines) -- using the
-# larger TRIG-only label scale, and TRIG's own (slightly more generous)
-# top/bottom margin, symmetric top and bottom.
+# TRIG (v5): cursor-based -- jack, label, button A (RATE), its label,
+# then ONE shared header line (replaces the old per-channel 2-line
+# caption), then button B (DEPTH), its label -- using the larger
+# TRIG-only label scale, and TRIG's own top/bottom margin, symmetric.
 trig_h = (TRIG_MARGIN
           + 2 * R["port"] + TRIG_GAP + TRIG_LABEL_H
           + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
+          + TRIG_GAP + TRIG_HEADER_H
           + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
-          + TRIG_GAP + TRIG_MICRO_H + TRIG_GAP + TRIG_MICRO_H
           + TRIG_MARGIN)
 
 btn_sub_h = btn_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
@@ -210,24 +229,30 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     micro(nm, cx, label_y)
     layout["io"].append({"x": round(cx, 2), "y": round(port_y, 2), "param": pnm, "dir": dr})
 
-# --- TRIG row (v4): jack, then two Stellar-sized buttons stacked
+# --- TRIG row (v5): jack, then two Stellar-sized buttons stacked
 # vertically, at the larger TRIG-only label scale, with a symmetric
-# TRIG_GAP between every stacked element (jack->label->btnA->label->
-# btnB->label->cap1->cap2), mirroring TRIG_MARGIN top and bottom.
+# TRIG_GAP between every stacked element, mirroring TRIG_MARGIN top and
+# bottom. A single shared header ("FOR: COMMAND MODULE") replaces the
+# old per-channel "cmd: x / (hidden)" captions -- drawn once, centered
+# across the whole row, right above the DEPTH buttons.
 tx, ty, tw, th, _ = sections["trig"]
 jack_y = ty + TRIG_MARGIN + R["port"]
 label_row_y = jack_y + R["port"] + TRIG_GAP + TRIG_LABEL_H
 btnA_y = label_row_y + TRIG_GAP + btn_half
 btnA_label_y = btnA_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
-btnB_y = btnA_label_y + TRIG_GAP + btn_half
+header_y = btnA_label_y + TRIG_GAP + TRIG_HEADER_H
+btnB_y = header_y + TRIG_GAP + btn_half
 btnB_label_y = btnB_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
-cap_y1 = btnB_label_y + TRIG_GAP + TRIG_MICRO_H
-cap_y2 = cap_y1 + TRIG_GAP + TRIG_MICRO_H
 chan_w = tw / 4
 # Left/right padding within each channel's own slot, mirrored on both
 # sides, so the enlarged captions/divider never crowd the divider lines.
 chan_pad = 1.0
 cmd_links = ["rate", "dens", "swing", "entropy"]
+# Dashed divider above the shared header, spanning the full row (mirrored
+# left/right margin), separating it visually from the per-channel RATE
+# controls above and DEPTH controls below.
+add(f'<line x1="{tx+chan_pad:.3f}" y1="{header_y-TRIG_GAP*0.6:.3f}" x2="{tx+tw-chan_pad:.3f}" y2="{header_y-TRIG_GAP*0.6:.3f}" stroke="{BORDER}" stroke-width="0.25" stroke-dasharray="0.6,0.6" opacity="0.6"/>')
+micro("FOR: COMMAND MODULE", tx + tw / 2, header_y, color=TEXT_DIM, size=TRIG_HEADER_H)
 for i in range(4):
     cx = tx + chan_w * (i + 0.5)
     if i > 0:
@@ -240,9 +265,6 @@ for i in range(4):
     micro("RATE", cx, btnA_label_y, size=TRIG_BTN_LABEL_H)
     add(f'<rect x="{cx-btn_half:.3f}" y="{btnB_y-btn_half:.3f}" width="{btn_half*2:.3f}" height="{btn_half*2:.3f}" rx="0.5" fill="none" stroke="{DEPTH_COLOR}" stroke-width="0.45" opacity="0.6"/>')
     micro("DEPTH", cx, btnB_label_y, size=TRIG_BTN_LABEL_H)
-    add(f'<line x1="{tx+chan_w*i+chan_pad:.3f}" y1="{cap_y1-TRIG_GAP-TRIG_MICRO_H:.3f}" x2="{tx+chan_w*(i+1)-chan_pad:.3f}" y2="{cap_y1-TRIG_GAP-TRIG_MICRO_H:.3f}" stroke="{BORDER}" stroke-width="0.2" stroke-dasharray="0.5,0.5" opacity="0.6"/>')
-    micro(f"cmd: {cmd_links[i]}", cx, cap_y1, color=TEXT_DIM, size=TRIG_MICRO_H)
-    micro("(hidden)", cx, cap_y2, color=TEXT_DIM, size=TRIG_MICRO_H)
     layout["trig"].append({"x": round(cx, 2), "jack_y": round(jack_y, 2), "trig_out": f"TRIG{i+1}_OUTPUT",
                             "ratediv_y": round(btnA_y, 2), "depth_y": round(btnB_y, 2),
                             "ratediv_param": f"RATEDIV{i+1}_PARAM", "depth_param": f"DEPTH{i+1}_PARAM",
