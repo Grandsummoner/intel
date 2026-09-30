@@ -340,11 +340,16 @@ struct Intel : Module {
 		outputs[MASTER_R_OUTPUT].setVoltage(clamp(outR, -10.f, 10.f) * 5.f);
 
 		// --- Metering: Command's activity when adjacent (priority), else EXT L/R level ---
-		bool cmdLeft = isCommand(leftExpander.module);
-		bool cmdRight = isCommand(rightExpander.module);
+		// cmdLeft/cmdRight = Command anywhere along the contiguous row of
+		// modules on that side (other modules may sit in between);
+		// adjLeft/adjRight = strictly adjacent, used only for LINK lights.
+		Module* cmdLeft = intelLinkFind(this, false, "SpacesCommand");
+		Module* cmdRight = intelLinkFind(this, true, "SpacesCommand");
+		bool adjLeft = isCommand(leftExpander.module);
+		bool adjRight = isCommand(rightExpander.module);
 		float meterLevel;
 		if (cmdLeft || cmdRight) {
-			IntelModMessage* incoming = cmdLeft
+			IntelModMessage* incoming = adjLeft
 				? (IntelModMessage*)leftExpander.consumerMessage
 				: (IntelModMessage*)rightExpander.consumerMessage;
 			// Command doesn't send anything back up this link (the link is
@@ -392,8 +397,8 @@ struct Intel : Module {
 		// its own consumerMessage on its next process() call. Writing into
 		// your own producerMessage/flipping your own expander (what I had
 		// here initially) would just make you read your own data back.
-		lights[LINK_LEFT_LIGHT].setBrightness(cmdLeft || isStellarModule(leftExpander.module) ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(cmdRight || isStellarModule(rightExpander.module) ? 1.f : 0.f);
+		lights[LINK_LEFT_LIGHT].setBrightness(adjLeft || isStellarModule(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(adjRight || isStellarModule(rightExpander.module) ? 1.f : 0.f);
 		if (cmdLeft || cmdRight) {
 			IntelModMessage msg;
 			msg.rateOffset = lfo[0].modValue;
@@ -412,12 +417,12 @@ struct Intel : Module {
 			// offsets (it knows its real parameter ranges); Intel just
 			// sends a bounded -1..1-ish value either way.
 			if (cmdLeft) {
-				Module* cmd = leftExpander.module;
+				Module* cmd = cmdLeft;
 				*(IntelModMessage*)cmd->rightExpander.producerMessage = msg;
 				cmd->rightExpander.messageFlipRequested = true;
 			}
 			if (cmdRight) {
-				Module* cmd = rightExpander.module;
+				Module* cmd = cmdRight;
 				*(IntelModMessage*)cmd->leftExpander.producerMessage = msg;
 				cmd->leftExpander.messageFlipRequested = true;
 			}
