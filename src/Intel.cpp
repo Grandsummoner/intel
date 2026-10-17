@@ -175,6 +175,7 @@ struct Intel : Module {
 	// Per-effect stored parameter pages (knob-paging model)
 	struct FxPage { float mix = 0.35f, time = 0.3f, regen = 0.4f, tone = 0.5f; };
 	FxPage delayPage, reverbPage;
+	float meterEnv = 0.f;  // VU envelope follower state (linear, 1.0 = 5V full scale)
 	bool firstProcess = true;
 
 	// Delay line
@@ -343,7 +344,7 @@ struct Intel : Module {
 		outputs[MASTER_L_OUTPUT].setVoltage(clamp(outL, -10.f, 10.f) * 5.f);
 		outputs[MASTER_R_OUTPUT].setVoltage(clamp(outR, -10.f, 10.f) * 5.f);
 
-		// --- Metering: Command's activity when adjacent (priority), else EXT L/R level ---
+		// --- Link discovery (who's connected, for LINK lights + data messages) ---
 		// cmdLeft/cmdRight = Command anywhere along the contiguous row of
 		// modules on that side (other modules may sit in between);
 		// adjLeft/adjRight = strictly adjacent, used only for LINK lights.
@@ -353,23 +354,23 @@ struct Intel : Module {
 		Module* beamsRight = intelLinkFind(this, true, "Beams");
 		bool adjLeft = isCommand(leftExpander.module);
 		bool adjRight = isCommand(rightExpander.module);
-		float meterLevel;
-		if (cmdLeft || cmdRight) {
-			IntelModMessage* incoming = adjLeft
-				? (IntelModMessage*)leftExpander.consumerMessage
-				: (IntelModMessage*)rightExpander.consumerMessage;
-			// Command doesn't send anything back up this link (the link is
-			// one-directional, Intel -> Command) -- so "adjacent" itself
-			// is the signal; use the LFO section's own average trigger
-			// activity as a stand-in visual pulse so the meter isn't dead
-			// when parked next to Command with nothing patched into EXT.
-			(void)incoming;
-			float act = 0.f;
-			for (int i = 0; i < 4; i++) act += lfo[i].trigPulse.remaining > 0.f ? 1.f : 0.f;
-			meterLevel = act / 4.f;
-		} else {
-			meterLevel = clamp((std::fabs(dryL) + std::fabs(dryR)) * 0.5f, 0.f, 1.f);
-		}
+		// --- VU meter: ALWAYS the level of Intel's own master output
+		// (post delay/reverb), never LFO activity. An earlier version
+		// switched to LFO trigger-pulse activity whenever Command was
+		// anywhere in the connected row -- those pulses are a few ms long
+		// and were unsmoothed, so the bar sat flat while audio played
+		// (and once the Command link learned to reach through other
+		// modules, that was almost always the case).
+		// Ballistics: fast attack (~2ms) so peaks register, slow release
+		// (~250ms) so the bar is readable instead of flickering; then a
+		// dB scale (-48dB..0dB -> empty..full, 0dB = 5V = Rack's nominal
+		// audio level) so quiet material is still visible.
+		float peak = std::max(std::fabs(outL), std::fabs(outR));
+		float coeff = (peak > meterEnv) ? 1.f - std::exp(-args.sampleTime / 0.002f)
+		                                : 1.f - std::exp(-args.sampleTime / 0.25f);
+		meterEnv += (peak - meterEnv) * coeff;
+		float meterDb = 20.f * std::log10(std::max(meterEnv, 1e-6f));
+		float meterLevel = clamp((meterDb + 48.f) / 48.f, 0.f, 1.f);
 		lights[METER_LIGHT].setBrightness(meterLevel);
 
 		// --- LFO / trigger channels ---
