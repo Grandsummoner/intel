@@ -162,6 +162,7 @@ struct Intel : Module {
 		ENUMS(RATEDIV3_LIGHT, 1), ENUMS(DEPTH3_LIGHT, 1),
 		ENUMS(RATEDIV4_LIGHT, 1), ENUMS(DEPTH4_LIGHT, 1),
 		ENUMS(METER_LIGHT, 1),
+		ENUMS(METER_PEAK_LIGHT, 1),
 		NUM_LIGHTS
 	};
 
@@ -175,7 +176,9 @@ struct Intel : Module {
 	// Per-effect stored parameter pages (knob-paging model)
 	struct FxPage { float mix = 0.35f, time = 0.3f, regen = 0.4f, tone = 0.5f; };
 	FxPage delayPage, reverbPage;
-	float meterEnv = 0.f;  // VU envelope follower state (linear, 1.0 = 5V full scale)
+	float meterMs = 0.f;    // mean-square (RMS^2) follower, 1.0 = 10V peak = Rack's clip level
+	float meterPeak = 0.f;  // peak follower for the marker tick
+	int meterDiv = 0;
 	bool firstProcess = true;
 
 	// Delay line
@@ -355,23 +358,30 @@ struct Intel : Module {
 		bool adjLeft = isCommand(leftExpander.module);
 		bool adjRight = isCommand(rightExpander.module);
 		// --- VU meter: ALWAYS the level of Intel's own master output
-		// (post delay/reverb), never LFO activity. An earlier version
+		// (post delay/reverb), never LFO activity (an earlier version
 		// switched to LFO trigger-pulse activity whenever Command was
-		// anywhere in the connected row -- those pulses are a few ms long
-		// and were unsmoothed, so the bar sat flat while audio played
-		// (and once the Command link learned to reach through other
-		// modules, that was almost always the case).
-		// Ballistics: fast attack (~2ms) so peaks register, slow release
-		// (~250ms) so the bar is readable instead of flickering; then a
-		// dB scale (-48dB..0dB -> empty..full, 0dB = 5V = Rack's nominal
-		// audio level) so quiet material is still visible.
-		float peak = std::max(std::fabs(outL), std::fabs(outR));
-		float coeff = (peak > meterEnv) ? 1.f - std::exp(-args.sampleTime / 0.002f)
-		                                : 1.f - std::exp(-args.sampleTime / 0.25f);
-		meterEnv += (peak - meterEnv) * coeff;
-		float meterDb = 20.f * std::log10(std::max(meterEnv, 1e-6f));
-		float meterLevel = clamp((meterDb + 48.f) / 48.f, 0.f, 1.f);
-		lights[METER_LIGHT].setBrightness(meterLevel);
+		// anywhere in the connected row, which sat flat while audio played).
+		// Scale matches Rack's own Audio module: 0 dB = +/-10V peak (its
+		// clip level), so Rack's nominal +/-5V signals read -6 dB peak
+		// instead of pegging the top. (The first version used 5V as 0 dB
+		// with a peak detector, ~6dB hotter than the Audio module, so
+		// ordinary signals sat at full.)
+		// The BAR is a true VU: mean-square average (~100ms), which sits
+		// well below the peaks like a real VU does; a separate PEAK TICK
+		// (instant attack, ~0.5s release) shows transients/clipping.
+		// Both map -42..0 dB -> empty..full.
+		float mL = outL * 0.5f, mR = outR * 0.5f;  // internal 1.0 = 5V -> 1.0 = 10V
+		float ms = 0.5f * (mL * mL + mR * mR);
+		meterMs += (ms - meterMs) * std::min(1.f, args.sampleTime / 0.1f);
+		float pk = std::max(std::fabs(mL), std::fabs(mR));
+		if (pk >= meterPeak) meterPeak = pk;
+		else meterPeak += (pk - meterPeak) * std::min(1.f, args.sampleTime / 0.5f);
+		if ((meterDiv++ & 31) == 0) {  // dB conversion is comparatively costly; ~1.5kHz update is plenty
+			float rmsDb = 10.f * std::log10(std::max(meterMs, 1e-12f));
+			float peakDb = 20.f * std::log10(std::max(meterPeak, 1e-6f));
+			lights[METER_LIGHT].setBrightness(clamp((rmsDb + 42.f) / 42.f, 0.f, 1.f));
+			lights[METER_PEAK_LIGHT].setBrightness(clamp((peakDb + 42.f) / 42.f, 0.f, 1.f));
+		}
 
 		// --- LFO / trigger channels ---
 		static const int rateDivParams[4] = {RATEDIV1_PARAM, RATEDIV2_PARAM, RATEDIV3_PARAM, RATEDIV4_PARAM};
@@ -555,11 +565,24 @@ struct IntelBarButton : ParamWidget {
 struct IntelMeterWidget : Widget {
 	Module* mod = nullptr;
 	int lightId = -1;
+	int peakLightId = -1;
 
 	void draw(const DrawArgs& args) override {
 		float level = (mod && lightId >= 0) ? mod->lights[lightId].getBrightness() : 0.f;
 		level = clamp(level, 0.f, 1.f);
 		float fillW = box.size.x * level;
+		// Peak tick: thin dark marker at the peak level (drawn even when the
+		// averaged bar is tiny, so brief transients are still visible).
+		if (mod && peakLightId >= 0) {
+			float pk = clamp(mod->lights[peakLightId].getBrightness(), 0.f, 1.f);
+			if (pk > 0.01f) {
+				float px = box.size.x * pk;
+				nvgBeginPath(args.vg);
+				nvgRect(args.vg, std::max(0.f, px - mm2px(Vec(0.3, 0)).x), 0.f, mm2px(Vec(0.6, 0)).x, box.size.y);
+				nvgFillColor(args.vg, nvgRGB(0x2A, 0x26, 0x20));
+				nvgFill(args.vg);
+			}
+		}
 		if (fillW < 1.f) return;
 		NVGpaint grad = nvgLinearGradient(args.vg, 0.f, 0.f, box.size.x, 0.f,
 			nvgRGB(0x4C, 0xA6, 0x4C), nvgRGB(0xD1, 0x4A, 0x3A));
@@ -662,6 +685,7 @@ struct IntelWidget : ModuleWidget {
 		meter->box.size = mm2px(Vec(54.32, 11.41));
 		meter->mod = module;
 		meter->lightId = Intel::METER_LIGHT;
+		meter->peakLightId = Intel::METER_PEAK_LIGHT;
 		addChild(meter);
 	}
 };
