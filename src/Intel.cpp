@@ -317,8 +317,13 @@ struct Intel : Module {
 		lights[SYNC_LIGHT].setBrightness((delayPageSelected ? delaySync : reverbSync) ? 1.f : 0.f);
 
 		// --- FX: delay always into reverb, both always live ---
-		float dryL = inputs[EXT_L_INPUT].getVoltage() / 5.f;
-		float dryR = inputs[EXT_R_INPUT].isConnected() ? inputs[EXT_R_INPUT].getVoltage() / 5.f : dryL;
+		// A single non-finite sample (NaN/Inf from an upstream module) would
+		// otherwise get written into the feedback buffers and circulate
+		// forever -- a latched "full blast" that only reloading cures. Replace
+		// it with silence, and cap the input at +/-20V.
+		auto sane = [](float x) { return std::isfinite(x) ? clamp(x, -4.f, 4.f) : 0.f; };
+		float dryL = sane(inputs[EXT_L_INPUT].getVoltage() / 5.f);
+		float dryR = inputs[EXT_R_INPUT].isConnected() ? sane(inputs[EXT_R_INPUT].getVoltage() / 5.f) : dryL;
 
 		float delayTimeSec = 0.02f + delayPage.time * 1.18f; // 20ms..1.2s
 		int delaySamples = clamp((int)(delayTimeSec * sr), 1, (int)delayBufL.size() - 1);
@@ -332,8 +337,17 @@ struct Intel : Module {
 		delayBufL[delayWriteIdx] = dryL + fbL * (delayPage.regen * 0.92f);
 		delayBufR[delayWriteIdx] = dryR + fbR * (delayPage.regen * 0.92f);
 		delayWriteIdx = (delayWriteIdx + 1) % (int)delayBufL.size();
-		float afterDelayL = dryL + delayWetL * delayPage.mix;
-		float afterDelayR = dryR + delayWetR * delayPage.mix;
+		// (v6) Level fix: the old chain ADDED unity-gain wet on top of the full
+		// dry signal, and a sustained tone through a feedback loop builds up
+		// by 1/(1-feedback) -- with Stellar's hot output that pushed peaks to
+		// 13V at default settings and 20-36V at higher REGEN (clipping the
+		// Audio module). Now MIX crossfades (dry eases back to 50% at full
+		// MIX) and the wet is scaled by sqrt(1-fb^2) so the sustained level
+		// stays about that of the input at any REGEN.
+		float delayFb = delayPage.regen * 0.92f;
+		float delayComp = std::sqrt(std::max(0.05f, 1.f - delayFb * delayFb));
+		float afterDelayL = dryL * (1.f - 0.5f * delayPage.mix) + delayWetL * delayPage.mix * delayComp;
+		float afterDelayR = dryR * (1.f - 0.5f * delayPage.mix) + delayWetR * delayPage.mix * delayComp;
 
 		// Reverb (Freeverb-style comb+allpass), fed by delay's output per
 		// the confirmed delay->reverb series path. Shimmer taps the
@@ -357,10 +371,28 @@ struct Intel : Module {
 			wetL = apL[i].process(wetL, 0.5f);
 			wetR = apR[i].process(wetR, 0.5f);
 		}
-		float outL = afterDelayL + wetL * reverbPage.mix;
-		float outR = afterDelayR + wetR * reverbPage.mix;
-		outputs[MASTER_L_OUTPUT].setVoltage(clamp(outL, -10.f, 10.f) * 5.f);
-		outputs[MASTER_R_OUTPUT].setVoltage(clamp(outR, -10.f, 10.f) * 5.f);
+		float reverbComp = std::sqrt(std::max(0.05f, 1.f - reverbFeedback * reverbFeedback));
+		float outL = afterDelayL * (1.f - 0.5f * reverbPage.mix) + wetL * reverbPage.mix * reverbComp;
+		float outR = afterDelayR * (1.f - 0.5f * reverbPage.mix) + wetR * reverbPage.mix * reverbComp;
+		if (!std::isfinite(outL) || !std::isfinite(outR)) {
+			// something blew up inside the FX: wipe every buffer instead of
+			// letting NaN circulate, and output silence this sample
+			onSampleRateChange();
+			meterMs = 0.f;
+			outL = outR = 0.f;
+		}
+		// Output limiter: transparent below 7V, then a smooth knee up to a hard
+		// ceiling of 10V (Rack's clip level). It used to be clamp(+/-10)*5,
+		// i.e. up to +/-50V -- far past what any audio output can take.
+		auto softLimitV = [](float v) {
+			float a = std::fabs(v);
+			if (a <= 7.f) return v;
+			float o = 7.f + 3.f * std::tanh((a - 7.f) / 3.f);
+			return v < 0.f ? -o : o;
+		};
+		float vOutL = softLimitV(outL * 5.f), vOutR = softLimitV(outR * 5.f);
+		outputs[MASTER_L_OUTPUT].setVoltage(vOutL);
+		outputs[MASTER_R_OUTPUT].setVoltage(vOutR);
 
 		// --- Link discovery (who's connected, for LINK lights + data messages) ---
 		// cmdLeft/cmdRight = Command anywhere along the contiguous row of
@@ -385,7 +417,7 @@ struct Intel : Module {
 		// well below the peaks like a real VU does. Maps -42..0 dB ->
 		// empty..full. (No peak tick: removed, the dark marker read as a
 		// stray trailing line at the end of the bar.)
-		float mL = outL * 0.5f, mR = outR * 0.5f;  // internal 1.0 = 5V -> 1.0 = 10V
+		float mL = vOutL * 0.1f, mR = vOutR * 0.1f;  // what actually leaves the jacks: 1.0 = 10V
 		float ms = 0.5f * (mL * mL + mR * mR);
 		meterMs += (ms - meterMs) * std::min(1.f, args.sampleTime / 0.1f);
 		if ((meterDiv++ & 31) == 0) {  // dB conversion is comparatively costly; ~1.5kHz update is plenty
