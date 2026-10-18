@@ -222,6 +222,12 @@ struct Intel : Module {
 		configParam(REVERB_PARAM, 0.f, 1.f, 0.f, "Show REVERB page");
 		configParam(SHIMMER_PARAM, 0.f, 1.f, 0.f, "Shimmer (reverb only, always live)");
 		configParam(SYNC_PARAM, 0.f, 1.f, 0.f, "Sync current page's TIME to clock divisions");
+		// Right-click Randomize leaves the momentary buttons alone (their
+		// real state lives inside the module); the FX knobs stay randomizable.
+		for (int id : {DELAY_PARAM, REVERB_PARAM, SHIMMER_PARAM, SYNC_PARAM,
+		               RATEDIV1_PARAM, DEPTH1_PARAM, RATEDIV2_PARAM, DEPTH2_PARAM,
+		               RATEDIV3_PARAM, DEPTH3_PARAM, RATEDIV4_PARAM, DEPTH4_PARAM})
+			paramQuantities[id]->randomizeEnabled = false;
 		configParam(MIX_PARAM, 0.f, 1.f, 0.35f, "Mix (current page)");
 		configParam(TIME_PARAM, 0.f, 1.f, 0.3f, "Time (current page)");
 		configParam(REGEN_PARAM, 0.f, 1.f, 0.4f, "Regen -- feedback (delay) / decay (reverb)");
@@ -242,6 +248,20 @@ struct Intel : Module {
 		rightExpander.consumerMessage = &rightConsumer;
 
 		onSampleRateChange();
+	}
+
+	// Right-click "Initialize": reset the module-side state too (RATE/DEPTH
+	// levels, FX pages, shimmer/sync) and wipe every FX buffer, so Initialize
+	// also clears any runaway delay/reverb.
+	void onReset() override {
+		for (int i = 0; i < 4; i++) lfo[i] = LfoChannel();
+		delayPage = FxPage();
+		reverbPage = FxPage();
+		delayPageSelected = true;
+		shimmerOn = false;
+		delaySync = reverbSync = false;
+		onSampleRateChange();
+		meterMs = 0.f;
 	}
 
 	void onSampleRateChange() override {
