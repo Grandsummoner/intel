@@ -101,14 +101,15 @@ struct OctaveUpShifter {
 
 struct LfoChannel {
 	double phase = 0.0;
-	int rateDivState = 1; // 0 = quarter, 1 = /8, 2 = /16, 3 = /32 (relative to global Speed's quarter-note reference) -- 4 states, same fill-bar convention as depth
-	int depthState = 2;   // 0 = off, 1 = low, 2 = med, 3 = high
+	int rateDivState = 1; // 0..3, higher = faster. With Beams' clock linked: fires every 8th / 4th / 2nd / every master tick. Unlinked: free-running at SPEED x {1,2,4,8}. Fill-bar convention, same as depth
+	int depthState = 2;   // 0 = off, 1 = low, 2 = med, 3 = high -- (v6) governs ONLY the modulation sent to Command; no longer touches the triggers
 	dsp::SchmittTrigger rateDivBtn, depthBtn;
 	dsp::PulseGenerator trigPulse;
 	float modValue = 0.f;
+	int tickCount = 0;
 
-	static constexpr float divMult[4] = {1.f, 2.f, 4.f, 8.f};
-	static constexpr float trigProb[4] = {0.f, 0.25f, 0.6f, 1.0f};
+	static constexpr float divMult[4] = {1.f, 2.f, 4.f, 8.f};            // free-running fallback
+	static constexpr int tickDiv[4] = {8, 4, 2, 1};                      // master ticks per trigger
 	static constexpr float modDepth[4] = {0.f, 0.15f, 0.35f, 0.6f};
 
 	void handleButtons(float rateDivRaw, float depthRaw) {
@@ -116,12 +117,26 @@ struct LfoChannel {
 		if (depthBtn.process(depthRaw)) depthState = (depthState + 1) % 4;
 	}
 
-	void step(float sampleRate, float globalSpeedHz) {
+	// ticks > 0 means Beams' master clock ticked this sample AND is linked
+	// (tickDriven); otherwise triggers free-run off the global Speed.
+	void step(float sampleRate, float globalSpeedHz, bool tickDriven, int ticks) {
 		double freq = globalSpeedHz * divMult[rateDivState];
 		phase += freq / sampleRate;
+		bool wrapped = false;
 		if (phase >= 1.0) {
 			phase -= 1.0;
-			if (random::uniform() < trigProb[depthState]) trigPulse.trigger(1e-3f);
+			wrapped = true;
+		}
+		if (tickDriven) {
+			for (int k = 0; k < ticks; k++) {
+				if (++tickCount >= tickDiv[rateDivState]) {
+					tickCount = 0;
+					trigPulse.trigger(1e-3f);
+				}
+			}
+		}
+		else if (wrapped) {
+			trigPulse.trigger(1e-3f);
 		}
 		modValue = std::sin(2.0 * M_PI * phase) * modDepth[depthState];
 	}
@@ -130,8 +145,8 @@ struct LfoChannel {
 		return trigPulse.process(sampleTime) ? 10.f : 0.f;
 	}
 };
+constexpr int LfoChannel::tickDiv[4];
 constexpr float LfoChannel::divMult[4];
-constexpr float LfoChannel::trigProb[4];
 constexpr float LfoChannel::modDepth[4];
 
 // ---------------------------------------------------------------------
@@ -194,12 +209,14 @@ struct Intel : Module {
 	// Expander link to Command (invisible; no jacks). See IntelLink.hpp for
 	// why this exact struct is duplicated verbatim in the Command repo.
 	IntelModMessage leftProducer, leftConsumer, rightProducer, rightConsumer;
+	unsigned int lastBeamsTick = 0;
+	bool beamsTickSeen = false;
 
 	Intel() {
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 		for (int i = 0; i < 4; i++) {
-			configParam(RATEDIV1_PARAM + i * 2, 0.f, 1.f, 0.f, "Rate-div cycle");
-			configParam(DEPTH1_PARAM + i * 2, 0.f, 1.f, 0.f, "Depth cycle");
+			configParam(RATEDIV1_PARAM + i * 2, 0.f, 1.f, 0.f, string::f("Trigger %d rate: with Beams linked, every 8th / 4th / 2nd / every master clock tick; otherwise free-running off SPEED", i + 1));
+			configParam(DEPTH1_PARAM + i * 2, 0.f, 1.f, 0.f, string::f("Trigger %d modulation depth for Command (off / low / medium / high) -- does not affect the trigger itself", i + 1));
 		}
 		configParam(DELAY_PARAM, 0.f, 1.f, 0.f, "Show DELAY page");
 		configParam(REVERB_PARAM, 0.f, 1.f, 0.f, "Show REVERB page");
@@ -383,9 +400,30 @@ struct Intel : Module {
 		static const int rateDivLights[4] = {RATEDIV1_LIGHT, RATEDIV2_LIGHT, RATEDIV3_LIGHT, RATEDIV4_LIGHT};
 		static const int depthLights[4] = {DEPTH1_LIGHT, DEPTH2_LIGHT, DEPTH3_LIGHT, DEPTH4_LIGHT};
 		float globalSpeedHz = params[SPEED_PARAM].getValue();
+		// (v6) Beams' master clock: Beams bumps a tick counter in the shared
+		// link message every tick (its CLOCK input, else its TEMPO). When
+		// that's arriving, our triggers are DIVISIONS of it, so they land
+		// exactly on Beams' grid; otherwise they free-run off SPEED as before.
+		bool tickDriven = false;
+		int ticksNow = 0;
+		{
+			const IntelModMessage* bm = nullptr;
+			if (beamsLeft) bm = (const IntelModMessage*)leftExpander.consumerMessage;
+			else if (beamsRight) bm = (const IntelModMessage*)rightExpander.consumerMessage;
+			if (bm && bm->beamsTickValid) {
+				tickDriven = true;
+				if (!beamsTickSeen) { beamsTickSeen = true; lastBeamsTick = bm->beamsTick; }
+				unsigned int d = bm->beamsTick - lastBeamsTick;
+				lastBeamsTick = bm->beamsTick;
+				ticksNow = (d > 8u) ? 1 : (int)d;   // a big jump = we just (re)linked: count it once
+			}
+			else {
+				beamsTickSeen = false;
+			}
+		}
 		for (int i = 0; i < 4; i++) {
 			lfo[i].handleButtons(params[rateDivParams[i]].getValue(), params[depthParams[i]].getValue());
-			lfo[i].step(sr, globalSpeedHz);
+			lfo[i].step(sr, globalSpeedHz, tickDriven, ticksNow);
 			outputs[trigOutputs[i]].setVoltage(lfo[i].trigVoltage(args.sampleTime));
 			// Fill-bar convention: both buttons are 4-state (0, 1/3, 2/3, full),
 			// so a single light's brightness directly IS the fill fraction
