@@ -387,11 +387,11 @@ struct Intel : Module {
 			lfo[i].handleButtons(params[rateDivParams[i]].getValue(), params[depthParams[i]].getValue());
 			lfo[i].step(sr, globalSpeedHz);
 			outputs[trigOutputs[i]].setVoltage(lfo[i].trigVoltage(args.sampleTime));
-			// Fill-bar convention: both buttons are 4-state (1/4..4/4 full),
+			// Fill-bar convention: both buttons are 4-state (0, 1/3, 2/3, full),
 			// so a single light's brightness directly IS the fill fraction
 			// the widget draws -- no color-coding needed, the widget's own
 			// fixed accent color (rate-div vs depth) carries identity.
-			lights[rateDivLights[i]].setBrightness((lfo[i].rateDivState + 1) / 4.f);
+			lights[rateDivLights[i]].setBrightness(lfo[i].rateDivState / 3.f);  // (v6) 0 -> empty gauge, same as DEPTH
 			// (v5) DEPTH's fill now genuinely spans 0 (no LFO) -> 1 (max
 			// LFO) in 3 even steps, matching depthState 0..3 exactly --
 			// was (state+1)/4, which never showed empty even at state 0.
@@ -632,11 +632,11 @@ struct IntelWidget : ModuleWidget {
 		static const int rateDivLight[4] = {Intel::RATEDIV1_LIGHT, Intel::RATEDIV2_LIGHT, Intel::RATEDIV3_LIGHT, Intel::RATEDIV4_LIGHT};
 		static const int depthLight[4] = {Intel::DEPTH1_LIGHT, Intel::DEPTH2_LIGHT, Intel::DEPTH3_LIGHT, Intel::DEPTH4_LIGHT};
 		for (int i = 0; i < 4; i++) {
-			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 61.86)), module, trigOut[i]));
-			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 73.06)), module, rateDivParam[i]);
+			addOutput(createOutputCentered<PJ301MPort>(mm2px(Vec(jackX[i], 57.86)), module, trigOut[i]));
+			auto* rd = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 74.31)), module, rateDivParam[i]);
 			rd->mod = module; rd->lightId = rateDivLight[i]; rd->color = nvgRGB(0x4A, 0x6F, 0xA5); // steel blue (was purple)
 			addParam(rd);
-			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 84.66)), module, depthParam[i]);
+			auto* dp = createParamCentered<IntelBarButton>(mm2px(Vec(jackX[i], 88.35)), module, depthParam[i]);
 			dp->mod = module; dp->lightId = depthLight[i]; dp->color = nvgRGB(0x1D, 0x7A, 0x5C);
 			addParam(dp);
 		}

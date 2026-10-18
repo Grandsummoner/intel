@@ -78,12 +78,15 @@ IO_GAP = 5.0
 
 # TRIG gets its own, larger label scale (v4) -- kept separate from the
 # shared LABEL_H/SMALL_LABEL_H above so I/O and FX aren't affected.
-TRIG_GAP = 1.3
 TRIG_MARGIN = 1.6
 TRIG_LABEL_H = 1.9        # "TRG n" jack labels
 TRIG_BTN_LABEL_H = 1.6    # "RATE" / "DEPTH" labels
-TRIG_HEADER_H = 1.5       # shared "FOR: COMMAND MODULE" header (v5, replaces
-                          # the old per-channel "cmd: x / (hidden)" captions)
+TRIG_HEADER_H = 1.7       # shared "FOR: ..." header text size (em, mm)
+HDR_CAP = 0.73 * TRIG_HEADER_H   # DejaVu Bold cap height at that em size
+HDR_GAP = 1.7             # equal clear space above the divider-to-text and
+                          # below the text-to-next-control (mirrored)
+HDR_BLOCK_H = HDR_GAP + HDR_CAP + HDR_GAP   # divider -> text -> next control
+TRIG_GAP = 1.6            # (v6) a little more air between stacked controls
 
 # FX knob guide radius -- 6.0mm diameter, slightly bigger than Stellar's
 # 5.6mm knob. The matching visual fix (an actual nvgScale, not just a
@@ -122,7 +125,7 @@ def octagon_points(cx, cy, r):
 title_x = x0 + (R["light"] + 0.6) * 2 + 1.5
 p, _ = txt("INTEL", title_x, 7.2, 4.4, TEXT_BRIGHT)
 add(p)
-p, _ = txt("modulation + fx for command", title_x, 10.4, 1.9, TEXT_DIM)
+p, _ = txt("modulation + fx and triggers", title_x, 10.4, 1.9, TEXT_DIM)
 add(p)
 TITLE_H = 12.5
 
@@ -168,10 +171,11 @@ meter_h = io_h
 # caption), then button B (DEPTH), its label -- using the larger
 # TRIG-only label scale, and TRIG's own top/bottom margin, symmetric.
 trig_h = (TRIG_MARGIN
-          + 2 * R["port"] + TRIG_GAP + TRIG_LABEL_H
-          + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
-          + TRIG_GAP + TRIG_HEADER_H
-          + TRIG_GAP + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H
+          + 2 * R["port"] + TRIG_GAP + TRIG_LABEL_H          # jack + "TRG n"
+          + TRIG_GAP + HDR_BLOCK_H                           # "FOR: BEAMS MODULE"
+          + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H       # RATE button + label
+          + TRIG_GAP + HDR_BLOCK_H                           # "FOR: COMMAND MODULE"
+          + btn_half * 2 + TRIG_GAP + TRIG_BTN_LABEL_H       # DEPTH button + label
           + TRIG_MARGIN)
 
 btn_sub_h = btn_half * 2 + LABEL_GAP + LABEL_H + 2 * MIN_MARGIN
@@ -229,35 +233,49 @@ for i, (nm, pnm, dr) in enumerate(zip(io_names, io_params, io_dirs)):
     micro(nm, cx, label_y)
     layout["io"].append({"x": round(cx, 2), "y": round(port_y, 2), "param": pnm, "dir": dr})
 
-# --- TRIG row (v5): jack, then two Stellar-sized buttons stacked
-# vertically, at the larger TRIG-only label scale, with a symmetric
-# TRIG_GAP between every stacked element, mirroring TRIG_MARGIN top and
-# bottom. A single shared header ("FOR: COMMAND MODULE") replaces the
-# old per-channel "cmd: x / (hidden)" captions -- drawn once, centered
-# across the whole row, right above the DEPTH buttons.
+# --- TRIG row (v6): jack, "FOR: BEAMS MODULE" header, RATE button,
+# "FOR: COMMAND MODULE" header, DEPTH button -- top to bottom, with the
+# same mirrored spacing everywhere: TRIG_MARGIN top/bottom, TRIG_GAP
+# between stacked controls, and each header is a self-contained band
+# (HDR_GAP above the divider-to-text, HDR_GAP below the text) so the
+# divider line and the vertical channel lines never touch the lettering.
+# RATE + the jack feed Beams (triggers); DEPTH is the part Command reads.
 tx, ty, tw, th, _ = sections["trig"]
 jack_y = ty + TRIG_MARGIN + R["port"]
 label_row_y = jack_y + R["port"] + TRIG_GAP + TRIG_LABEL_H
-btnA_y = label_row_y + TRIG_GAP + btn_half
+hdrA_div_y = label_row_y + TRIG_GAP                    # divider above BEAMS header
+hdrA_y = hdrA_div_y + HDR_GAP + HDR_CAP                # its text baseline
+btnA_top = hdrA_y + HDR_GAP
+btnA_y = btnA_top + btn_half
 btnA_label_y = btnA_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
-header_y = btnA_label_y + TRIG_GAP + TRIG_HEADER_H
-btnB_y = header_y + TRIG_GAP + btn_half
+hdrB_div_y = btnA_label_y + TRIG_GAP                   # divider above COMMAND header
+hdrB_y = hdrB_div_y + HDR_GAP + HDR_CAP
+btnB_top = hdrB_y + HDR_GAP
+btnB_y = btnB_top + btn_half
 btnB_label_y = btnB_y + btn_half + TRIG_GAP + TRIG_BTN_LABEL_H
 chan_w = tw / 4
-# Left/right padding within each channel's own slot, mirrored on both
-# sides, so the enlarged captions/divider never crowd the divider lines.
 chan_pad = 1.0
 cmd_links = ["rate", "dens", "swing", "entropy"]
-# Dashed divider above the shared header, spanning the full row (mirrored
-# left/right margin), separating it visually from the per-channel RATE
-# controls above and DEPTH controls below.
-add(f'<line x1="{tx+chan_pad:.3f}" y1="{header_y-TRIG_GAP*0.6:.3f}" x2="{tx+tw-chan_pad:.3f}" y2="{header_y-TRIG_GAP*0.6:.3f}" stroke="{BORDER}" stroke-width="0.25" stroke-dasharray="0.6,0.6" opacity="0.6"/>')
-micro("FOR: COMMAND MODULE", tx + tw / 2, header_y, color=TEXT_DIM, size=TRIG_HEADER_H)
+
+def header_band(div_y, text_y, text):
+    add(f'<line x1="{tx+chan_pad:.3f}" y1="{div_y:.3f}" x2="{tx+tw-chan_pad:.3f}" y2="{div_y:.3f}" stroke="{BORDER}" stroke-width="0.25" stroke-dasharray="0.6,0.6" opacity="0.6"/>')
+    micro(text, tx + tw / 2, text_y, color=TEXT_DIM, size=TRIG_HEADER_H)
+header_band(hdrA_div_y, hdrA_y, "FOR: BEAMS MODULE")
+header_band(hdrB_div_y, hdrB_y, "FOR: COMMAND MODULE")
+
+# Vertical channel dividers are drawn in 3 segments that skip the two
+# header bands (they used to run straight through the header lettering).
+v_segs = [
+    (ty + 0.8, hdrA_div_y - 0.3),
+    (btnA_top - 0.4, hdrB_div_y - 0.3),
+    (btnB_top - 0.4, ty + th - 0.8),
+]
 for i in range(4):
     cx = tx + chan_w * (i + 0.5)
     if i > 0:
         dx = tx + chan_w * i
-        add(f'<line x1="{dx:.3f}" y1="{ty+0.8:.3f}" x2="{dx:.3f}" y2="{ty+th-0.8:.3f}" stroke="{BORDER}" stroke-width="0.3" opacity="0.5"/>')
+        for (y1, y2) in v_segs:
+            add(f'<line x1="{dx:.3f}" y1="{y1:.3f}" x2="{dx:.3f}" y2="{y2:.3f}" stroke="{BORDER}" stroke-width="0.3" opacity="0.5"/>')
     add(f'<circle cx="{cx:.3f}" cy="{jack_y:.3f}" r="{R["port"]+0.3:.3f}" fill="none" stroke="{BRASS}" stroke-width="1.6" opacity="0.55"/>')
     micro(f"TRG {i+1}", cx, label_row_y, color=TEXT_BRIGHT, size=TRIG_LABEL_H)
     # Button guides only -- the real widget draws the 4-level fill bar
