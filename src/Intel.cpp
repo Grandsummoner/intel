@@ -286,21 +286,37 @@ struct Intel : Module {
 		shimmerR.init((int)sr);
 	}
 
-	static bool isCommand(Module* m) {
-		return m && m->model && m->model->plugin && m->model->plugin->slug == "SpacesCommand"
-			&& m->model->slug == "SpacesCommand";
+	static bool isFamilyModule(Module* m) {
+		if (!m || !m->model) return false;
+		std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+		std::string mSlug = m->model->slug;
+		auto match = [&](const std::string& name) {
+			return mSlug == name || pSlug == name || 
+			       mSlug == "Grandsummoner-" + name || pSlug == "Grandsummoner-" + name;
+		};
+		return match("SpacesCommand") || match("Intel") || match("Beams") || match("Stellar") || match("Explorer");
 	}
-	// Stellar has nothing to send Intel and nothing is read from it here --
-	// this exists purely so the LINK light recognizes any family member,
-	// not just Command, matching the same "any neighbor lights it" rule
-	// Command and Stellar apply for each other.
+
+	static bool isCommand(Module* m) {
+		if (!m || !m->model) return false;
+		std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+		std::string mSlug = m->model->slug;
+		return mSlug == "SpacesCommand" || pSlug == "SpacesCommand" ||
+		       mSlug == "Grandsummoner-SpacesCommand" || pSlug == "Grandsummoner-SpacesCommand";
+	}
 	static bool isStellarModule(Module* m) {
-		return m && m->model && m->model->plugin && m->model->plugin->slug == "Stellar"
-			&& m->model->slug == "Stellar";
+		if (!m || !m->model) return false;
+		std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+		std::string mSlug = m->model->slug;
+		return mSlug == "Stellar" || pSlug == "Stellar" ||
+		       mSlug == "Grandsummoner-Stellar" || pSlug == "Grandsummoner-Stellar";
 	}
 	static bool isBeams(Module* m) {
-		return m && m->model && m->model->plugin && m->model->plugin->slug == "Beams"
-			&& m->model->slug == "Beams";
+		if (!m || !m->model) return false;
+		std::string pSlug = (m->model->plugin) ? m->model->plugin->slug : "";
+		std::string mSlug = m->model->slug;
+		return mSlug == "Beams" || pSlug == "Beams" ||
+		       mSlug == "Grandsummoner-Beams" || pSlug == "Grandsummoner-Beams";
 	}
 
 	void process(const ProcessArgs& args) override {
@@ -497,8 +513,8 @@ struct Intel : Module {
 		// its own consumerMessage on its next process() call. Writing into
 		// your own producerMessage/flipping your own expander (what I had
 		// here initially) would just make you read your own data back.
-		lights[LINK_LEFT_LIGHT].setBrightness(adjLeft || isStellarModule(leftExpander.module) || isBeams(leftExpander.module) ? 1.f : 0.f);
-		lights[LINK_RIGHT_LIGHT].setBrightness(adjRight || isStellarModule(rightExpander.module) || isBeams(rightExpander.module) ? 1.f : 0.f);
+		lights[LINK_LEFT_LIGHT].setBrightness(isFamilyModule(leftExpander.module) ? 1.f : 0.f);
+		lights[LINK_RIGHT_LIGHT].setBrightness(isFamilyModule(rightExpander.module) ? 1.f : 0.f);
 		if (beamsLeft || beamsRight) {
 			// Beams link: a single DECAY offset, sourced from the REVERB
 			// page's stored tone value specifically (not just "whatever

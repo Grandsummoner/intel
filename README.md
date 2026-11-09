@@ -1,9 +1,31 @@
-# Intel
+# Grandsummoner Intel
 
-Modulation + FX companion module for the Spaces family (Command, Stellar).
+**Intel** is a 14 HP modulation and FX companion Eurorack module for [VCV Rack v2](https://vcvrack.com/).
 
-- **Metering**: reads Command's pattern activity when adjacent (priority), or EXT L/R audio otherwise.
-- **FX**: always-on delay into reverb (shimmer-capable), knob-paged (DELAY/REVERB buttons pick which effect's MIX/TIME/REGEN/TONE the shared knobs are showing -- both effects keep running and keep their own values regardless of which page is selected).
-- **LFO**: 4 channels (RATE, DENS, SWING, ENTROPY), each with a cycled Rate-div button and Depth button. Each channel's TRG jack always outputs rhythmic gate triggers (for a drum module); when Intel sits directly adjacent to a Command module, the same 4 channels *also* invisibly modulate Command's RATE/DENSITY/SWING/ENTROPY via the expander link -- no cable needed, and Command's panel is unchanged.
+- **Metering**: Master output level ladder or EXT L/R audio processing.
+- **Dual FX Engines**: Always-on delay into reverb (with shimmer), knob-paged (DELAY/REVERB toggle buttons switch MIX, TIME, REGEN, and TONE while both engines remain active simultaneously).
+- **4 LFO / Trigger Channels**: 4 rate/depth-quantized LFO channels that output rhythmic triggers for drum modules while invisibly modulating adjacent modules.
 
-See the parent family repo (Spaces / Stellar) for context on the overall plugin family.
+## Family Adjacency (Connector LED & Expander Link)
+- **Universal Adjacency**: Left and right side connector LEDs automatically light up when physically adjacent to any Grandsummoner family module (**Spaces Command**, **Beams**, **Stellar**, or **Explorer**).
+- **Multi-Hop Synchronization**: Seamless multi-hop expander messaging with Spaces Command and Beams.
+
+## Building from Source
+
+### Prerequisites
+- [VCV Rack SDK v2](https://vcvrack.com/downloads/)
+- C++17 compatible compiler toolchain (`make`, `g++`, `mingw-w64`)
+
+### Build Commands
+```bash
+# Set path to your Rack-SDK directory
+export RACK_DIR=/path/to/Rack-SDK
+
+# Build the distributable plugin package
+make -j2 dist
+```
+
+The resulting package will be placed in `dist/Intel-2.0.0-<platform>.vcvplugin`.
+
+## License
+GPL-3.0-or-later. Created by Grandsummoner.
