@@ -119,33 +119,6 @@ Both the stereo delay and algorithmic reverb run continuously in series (`Delay 
 
 ---
 
-## Building and Installation
-
-### Prebuilt Plugin Package
-Download `Intel-2.0.0-<platform>.vcvplugin` from the [Releases](https://github.com/Grandsummoner/intel/releases) section and extract it to your VCV Rack `plugins` directory:
-- **Windows**: `Documents/Rack2/plugins/`
-- **macOS**: `Documents/Rack2/plugins/`
-- **Linux**: `~/.Rack2/plugins/`
-
-### Building from Source
-Ensure you have the [VCV Rack SDK v2](https://vcvrack.com/downloads/) installed.
-
-```bash
-# Clone the repository
-git clone https://github.com/Grandsummoner/intel.git
-cd intel
-
-# Set your Rack SDK directory
-export RACK_DIR=/path/to/Rack-SDK
-
-# Build the distributable package
-make -j2 dist
-```
-
-The compiled package will be located in `dist/Intel-2.0.0-<platform>.vcvplugin`.
-
----
-
 ## License
 
 This software is released under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later).  
